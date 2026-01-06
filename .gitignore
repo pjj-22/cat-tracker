@@ -1,0 +1,13 @@
+demos/
+cat > .gitignore << 'EOF'
+*.pt
+*.onnx
+
+*.jpg
+*.png
+__pycache__/
+*.pyc
+
+
+.DS_Store
+EOF
