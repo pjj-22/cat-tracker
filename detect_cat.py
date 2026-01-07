@@ -45,7 +45,7 @@ def parse_yolo_output(output, conf_threshold=0.5, iou_threshold=0.4):
     return detections
 
 print("Loading ONNX model...")
-session = ort.InferenceSession("yolov8n.onnx", providers=['CPUExecutionProvider'])
+session = ort.InferenceSession("yolov8s.onnx", providers=['CPUExecutionProvider'])
 input_name = session.get_inputs()[0].name
 input_shape = session.get_inputs()[0].shape
 model_h, model_w = input_shape[2], input_shape[3]
