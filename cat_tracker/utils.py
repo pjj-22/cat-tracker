@@ -65,3 +65,25 @@ def euclidean_distance(bbox1, bbox2):
     Calculate Euclidean distance between centers of two bounding boxes.
     """
     return np.linalg.norm(bbox1[:2] - bbox2[:2])
+
+
+def clamp_bbox_to_image(bbox, img_width, img_height):
+    """
+    Clamp bounding box coordinates to image boundaries.
+    
+    Args:
+        bbox: [x1, y1, x2, y2] in corner format
+        img_width: width
+        img_height: height
+        
+    Returns:
+        Clamped bbox: [x1, y1, x2, y2]
+    """
+    x1, y1, x2, y2 = bbox
+    
+    x1 = max(0, min(x1, img_width - 1))
+    x2 = max(0, min(x2, img_width))
+    y1 = max(0, min(y1, img_height - 1))
+    y2 = max(0, min(y2, img_height))
+    
+    return x1, y1, x2, y2
