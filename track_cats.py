@@ -32,10 +32,14 @@ def parse_yolo_output(output, conf_threshold=0.2, iou_threshold=0.4):
     
     if len(boxes) == 0:
         return []
-    
+
     boxes = np.array(boxes)
     indices = cv2.dnn.NMSBoxes(boxes.tolist(), scores, conf_threshold, iou_threshold)
-    
+
+    # Flatten indices for compatibility across OpenCV versions
+    if len(indices) > 0:
+        indices = indices.flatten()
+
     detections = []
     for i in indices:
         detections.append({

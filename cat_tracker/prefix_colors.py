@@ -58,6 +58,7 @@ class ColorHistogramExtractor:
                 Normalized histograms for HSV channels,
                 or (None, None, None) if region is invalid
         """
+        h, w = frame_rgb.shape[:2]
         x1, y1, x2, y2 = clamp_bbox_to_image(bbox, w, h)
 
         roi = frame_rgb[y1:y2, x1:x2]
@@ -96,9 +97,14 @@ class ColorHistogramExtractor:
         hist_s = hist_s.flatten().astype(np.float32)
         hist_v = hist_v.flatten().astype(np.float32)
 
-        hist_h /= np.sum(hist_h)
-        hist_s /= np.sum(hist_s)
-        hist_v /= np.sum(hist_v)
+        # Normalize with safety check for division by zero
+        sum_h = np.sum(hist_h)
+        sum_s = np.sum(hist_s)
+        sum_v = np.sum(hist_v)
+
+        hist_h = hist_h / sum_h if sum_h > 0 else np.zeros_like(hist_h)
+        hist_s = hist_s / sum_s if sum_s > 0 else np.zeros_like(hist_s)
+        hist_v = hist_v / sum_v if sum_v > 0 else np.zeros_like(hist_v)
 
         return hist_h, hist_s, hist_v
 

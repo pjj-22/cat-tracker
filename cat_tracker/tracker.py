@@ -65,9 +65,9 @@ class Track:
     def is_confirmed(self):
         """
         Check if track is confirmed (not a false detection).
-        Requires multiple consecutive hits.
+        Requires multiple hits and tolerates brief occlusions.
         """
-        return self.hits >= 3 and self.missed_frames == 0
+        return self.hits >= 3 and self.missed_frames < 3
     
     def should_delete(self, max_missed=10):
         """Check if track should be deleted (lost for too long)."""

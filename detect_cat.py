@@ -34,7 +34,10 @@ def parse_yolo_output(output, conf_threshold=0.5, iou_threshold=0.4):
     # Apply NMS
     boxes = np.array(boxes)
     indices = cv2.dnn.NMSBoxes(boxes.tolist(), scores, conf_threshold, iou_threshold)
-    
+
+    if len(indices) > 0:
+        indices = indices.flatten()
+
     detections = []
     for i in indices:
         detections.append({
@@ -110,7 +113,8 @@ try:
             break
 
 except KeyboardInterrupt:
-    pass
+    print("\nStopping...")
 
-picam2.stop()
-cv2.destroyAllWindows()
+finally:
+    picam2.stop()
+    cv2.destroyAllWindows()
