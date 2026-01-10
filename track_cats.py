@@ -10,6 +10,8 @@ import time
 from datetime import datetime
 import os
 from cat_tracker.multi_tracker import MultiTracker
+from cat_tracker.prefix_colors import ColorHistogramExtractor, ColorHistogramIdentifier
+from cat_tracker.utils import bbox_to_pixel_xyxy
 
 DEBUG = True  # Set to False once working
 
@@ -68,18 +70,7 @@ COLORS = [
 def draw_track(frame, track, model_w, model_h, is_tentative=False):
     """Draw bounding box and ID for a track."""
     orig_h, orig_w = frame.shape[:2]
-    
-    # Convert bbox to pixel coordinates
-    x_center, y_center, w, h = track.bbox
-    x_center = x_center / model_w * orig_w
-    y_center = y_center / model_h * orig_h
-    w = w / model_w * orig_w
-    h = h / model_h * orig_h
-    
-    x1 = int(x_center - w/2)
-    y1 = int(y_center - h/2)
-    x2 = int(x_center + w/2)
-    y2 = int(y_center + h/2)
+    x1, y1, x2, y2 = bbox_to_pixel_xyxy(track.bbox, model_w, model_h, orig_w, orig_h)
     
     # Get color for this track ID
     color = COLORS[(track.id - 1) % len(COLORS)]
@@ -90,7 +81,10 @@ def draw_track(frame, track, model_w, model_h, is_tentative=False):
         label = f"Track #{track.id} (tent)"
     else:
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-        label = f"Cat #{track.id}"
+        if track.name != "Unknown":
+            label = f"{track.name} #{track.id}"
+        else:
+            label = f"Cat #{track.id}"
     
     # Add debug info if enabled
     if DEBUG:
@@ -128,6 +122,11 @@ time.sleep(2)
 
 # Initialize tracker (more lenient settings)
 tracker = MultiTracker(max_missed=15, min_hits=3, iou_threshold=0.3)
+
+# Initialize color-based cat identifier
+extractor = ColorHistogramExtractor()
+identifier = ColorHistogramIdentifier()
+
 # Setup video writer
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 output_filename = f"demos/phase2_tracking_{timestamp}.mp4"
@@ -157,7 +156,15 @@ try:
         
         # Update tracker
         confirmed_tracks = tracker.update(detections)
-        
+
+        # Identify cats by color histogram
+        orig_h, orig_w = frame.shape[:2]
+        for track in confirmed_tracks:
+            x1, y1, x2, y2 = bbox_to_pixel_xyxy(track.bbox, model_w, model_h, orig_w, orig_h)
+            hist_h, hist_s, hist_v = extractor.extract(frame, (x1, y1, x2, y2))
+            if hist_h is not None:
+                track.name, track.name_confidence, _ = identifier.identify(hist_h, hist_s, hist_v)
+
         # Draw ALL tracks if debugging
         if DEBUG:
             # Draw tentative tracks (gray)

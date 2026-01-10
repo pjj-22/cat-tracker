@@ -15,6 +15,33 @@ def bbox_to_xyxy(bbox):
     return np.array([x - w/2, y - h/2, x + w/2, y + h/2])
 
 
+def bbox_to_pixel_xyxy(bbox, model_w, model_h, frame_w, frame_h):
+    """
+    Convert bbox from model coordinates (center format) to pixel coordinates (corner format).
+
+    Args:
+        bbox: [x_center, y_center, w, h] in model coordinates
+        model_w, model_h: Model input dimensions
+        frame_w, frame_h: Frame pixel dimensions
+
+    Returns:
+        (x1, y1, x2, y2) in pixel coordinates
+    """
+    x_center, y_center, w, h = bbox
+
+    x_center = x_center / model_w * frame_w
+    y_center = y_center / model_h * frame_h
+    w = w / model_w * frame_w
+    h = h / model_h * frame_h
+
+    x1 = int(x_center - w/2)
+    y1 = int(y_center - h/2)
+    x2 = int(x_center + w/2)
+    y2 = int(y_center + h/2)
+
+    return (x1, y1, x2, y2)
+
+
 def xyxy_to_bbox(xyxy):
     """
     If we receive corner-format boxes (e.g., from some detection tools),

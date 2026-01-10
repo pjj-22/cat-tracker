@@ -15,27 +15,31 @@ class Track:
     def __init__(self, bbox, confidence):
         """
         Initialize a new track.
-        
+
         Args:
             bbox: Initial bounding box [x_center, y_center, width, height]
             confidence: Detection confidence score
         """
         self.id = Track._next_id
         Track._next_id += 1
-        
+
         # Kalman filter for motion prediction
         self.kf = BBoxKalmanFilter(bbox)
-        
+
         # Current state
         self.bbox = bbox
         self.predicted_bbox = bbox
         self.confidence = confidence
-        
+
         # Track management
         self.hits = 1  # Number of times this track was matched
         self.missed_frames = 0  # Consecutive frames without detection
         self.age = 0  # Total frames this track has existed
-        
+
+        # Cat identification
+        self.name = "Unknown"
+        self.name_confidence = 0.0
+
     def predict(self):
         """Predict next position."""
         self.predicted_bbox = self.kf.predict()
