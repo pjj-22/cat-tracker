@@ -224,8 +224,8 @@ Hue Entropy: {hue_entropy:.2f}
 (Lower = more distinctive color)
 
 Profile Quality:
-{'✓ Excellent' if profile['sample_count'] >= 15 else '⚠ Needs more samples'}
-{'✓ Distinctive' if hue_entropy < 2.0 else '⚠ High color variation'}
+{'Excellent' if profile['sample_count'] >= 15 else 'Needs more samples'}
+{'Distinctive' if hue_entropy < 2.0 else 'High color variation'}
     """
     
     ax6.text(0.1, 0.9, stats_text, fontsize=11, verticalalignment='top',
@@ -243,15 +243,15 @@ if __name__ == "__main__":
     profile_path = "cat_profiles.json"
     
     if not os.path.exists(profile_path):
-        print(f"❌ Profile file not found: {profile_path}")
+        print(f"ERROR: Profile file not found: {profile_path}")
         print("\nRun train_cat_profiles_fixed.py first to create profiles")
         exit(1)
-    
+
     with open(profile_path, "r") as f:
         data = json.load(f)
-    
+
     if not data:
-        print("❌ No profiles found in file")
+        print("ERROR: No profiles found in file")
         exit(1)
     
     print("="*60)
