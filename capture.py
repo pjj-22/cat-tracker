@@ -141,7 +141,7 @@ def main(duration=None):
             # Update tracker
             confirmed_tracks = tracker.update(detections)
 
-            # Save frames for each track
+            # Save frames for each track (use clean frame without overlays)
             for track in confirmed_tracks:
                 track_id = track.id
                 x1, y1, x2, y2 = bbox_to_pixel_xyxy(track.bbox, model_w, model_h, orig_w, orig_h)
@@ -156,7 +156,7 @@ def main(duration=None):
                 # Save frame at intervals
                 frames_since_save = track_frame_counts[track_id] - track_last_save[track_id]
                 if frames_since_save >= save_interval:
-                    # Extract crop
+                    # Extract crop from clean frame
                     crop = frame[y1:y2, x1:x2]
                     if crop.size > 0:
                         track_dir = f"{session_dir}/track_{track_id:03d}"
@@ -167,11 +167,15 @@ def main(duration=None):
 
                 track_frame_counts[track_id] += 1
 
-                # Draw on display
+            # Draw overlays on display frame (after saving crops)
+            display_frame = frame.copy()
+            for track in confirmed_tracks:
+                track_id = track.id
+                x1, y1, x2, y2 = bbox_to_pixel_xyxy(track.bbox, model_w, model_h, orig_w, orig_h)
                 color = COLORS[(track_id - 1) % len(COLORS)]
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
                 saved_count = len([f for f in os.listdir(f"{session_dir}/track_{track_id:03d}") if f.endswith('.jpg')])
-                cv2.putText(frame, f"Track #{track_id} ({saved_count} saved)", (x1, y1-10),
+                cv2.putText(display_frame, f"Track #{track_id} ({saved_count} saved)", (x1, y1-10),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
             # FPS
@@ -183,12 +187,12 @@ def main(duration=None):
 
             # Status overlay
             elapsed = int(time.time() - start_time)
-            cv2.putText(frame, f"FPS: {current_fps:.1f} | Time: {elapsed}s", (10, 30),
+            cv2.putText(display_frame, f"FPS: {current_fps:.1f} | Time: {elapsed}s", (10, 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.putText(frame, f"Tracks: {len(track_frame_counts)} | Capturing...", (10, 60),
+            cv2.putText(display_frame, f"Tracks: {len(track_frame_counts)} | Capturing...", (10, 60),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-            cv2.imshow("Auto-Capture - Press 'q' to stop", frame)
+            cv2.imshow("Auto-Capture - Press 'q' to stop", display_frame)
             key = cv2.waitKey(1) & 0xFF
 
             if key == ord('q'):
