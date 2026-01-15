@@ -50,15 +50,14 @@ def draw_track(frame, track, model_w, model_h, debug=False, is_tentative=False):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
 
-def main(debug=True):
+def main(debug=True, record=False):
     """
     Run live cat tracking with identification.
 
     Args:
         debug: Show debug overlays (tentative tracks, detection dots, extra stats)
+        record: Save video to demos/ directory
     """
-    os.makedirs('demos', exist_ok=True)
-
     print("Loading ONNX model...")
     session, input_name, model_h, model_w = load_yolo_model()
 
@@ -73,12 +72,16 @@ def main(debug=True):
     extractor = ColorHistogramExtractor()
     identifier = ColorHistogramIdentifier()
 
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_filename = f"demos/phase2_tracking_{timestamp}.mp4"
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_filename, fourcc, 20.0, (640, 480))
+    out = None
+    output_filename = None
+    if record:
+        os.makedirs('demos', exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_filename = f"demos/phase2_tracking_{timestamp}.mp4"
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_filename, fourcc, 20.0, (640, 480))
+        print(f"Recording to {output_filename}")
 
-    print(f"Recording to {output_filename}")
     print("Press 'q' to stop")
 
     fps_start = time.time()
