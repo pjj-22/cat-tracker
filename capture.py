@@ -26,7 +26,6 @@ Controls:
 from picamera2 import Picamera2
 import cv2
 import numpy as np
-import onnxruntime as ort
 import time
 import os
 import json
@@ -35,44 +34,7 @@ from datetime import datetime
 from cat_tracker.multi_tracker import MultiTracker
 from cat_tracker.tracker import Track
 from cat_tracker.utils import bbox_to_pixel_xyxy
-
-def parse_yolo_output(output, conf_threshold=0.2, iou_threshold=0.4):
-    output = output[0].T
-    boxes, scores, class_ids = [], [], []
-
-    for detection in output:
-        box = detection[:4]
-        class_scores = detection[4:]
-        class_id = np.argmax(class_scores)
-        confidence = class_scores[class_id]
-
-        if class_id == 15 and confidence > conf_threshold:
-            boxes.append(box)
-            scores.append(float(confidence))
-            class_ids.append(class_id)
-
-    if len(boxes) == 0:
-        return []
-
-    boxes = np.array(boxes)
-    indices = cv2.dnn.NMSBoxes(boxes.tolist(), scores, conf_threshold, iou_threshold)
-
-    if len(indices) > 0:
-        indices = indices.flatten()
-
-    detections = []
-    for i in indices:
-        detections.append({
-            'box': boxes[i],
-            'confidence': scores[i]
-        })
-
-    return detections
-
-COLORS = [
-    (0, 255, 0), (255, 0, 0), (0, 0, 255), (255, 255, 0),
-    (255, 0, 255), (0, 255, 255), (128, 0, 255), (255, 128, 0),
-]
+from cat_tracker.detection import load_yolo_model, parse_yolo_output, preprocess_frame, TRACK_COLORS
 
 def main(duration=None):
     # Create session directory
@@ -94,10 +56,7 @@ def main(duration=None):
 
     # Load model
     print("\nLoading YOLO model...")
-    session_onnx = ort.InferenceSession("yolov8s.onnx", providers=['CPUExecutionProvider'])
-    input_name = session_onnx.get_inputs()[0].name
-    input_shape = session_onnx.get_inputs()[0].shape
-    model_h, model_w = input_shape[2], input_shape[3]
+    session_onnx, input_name, model_h, model_w = load_yolo_model()
 
     # Start camera
     picam2 = Picamera2()
@@ -132,9 +91,7 @@ def main(duration=None):
             orig_h, orig_w = frame.shape[:2]
 
             # YOLO detection
-            resized = cv2.resize(frame, (model_w, model_h))
-            input_data = resized.transpose(2, 0, 1).astype(np.float32) / 255.0
-            input_data = np.expand_dims(input_data, axis=0)
+            input_data = preprocess_frame(frame, model_w, model_h)
             outputs = session_onnx.run(None, {input_name: input_data})[0]
             detections = parse_yolo_output(outputs)
 
@@ -172,7 +129,7 @@ def main(duration=None):
             for track in confirmed_tracks:
                 track_id = track.id
                 x1, y1, x2, y2 = bbox_to_pixel_xyxy(track.bbox, model_w, model_h, orig_w, orig_h)
-                color = COLORS[(track_id - 1) % len(COLORS)]
+                color = TRACK_COLORS[(track_id - 1) % len(TRACK_COLORS)]
                 cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
                 saved_count = len([f for f in os.listdir(f"{session_dir}/track_{track_id:03d}") if f.endswith('.jpg')])
                 cv2.putText(display_frame, f"Track #{track_id} ({saved_count} saved)", (x1, y1-10),
