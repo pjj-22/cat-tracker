@@ -15,7 +15,6 @@ TRACK_COLORS = [
     (0, 0, 255),    # Red
     (255, 255, 0),  # Cyan
     (255, 0, 255),  # Magenta
-    (0, 255, 255),  # Yellow
     (128, 0, 255),  # Purple
     (255, 128, 0),  # Orange
     (0, 128, 255),  # Light Blue

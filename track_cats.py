@@ -101,10 +101,12 @@ def main(debug=True):
             # Identify cats by color histogram
             orig_h, orig_w = frame.shape[:2]
             for track in confirmed_tracks:
-                x1, y1, x2, y2 = bbox_to_pixel_xyxy(track.bbox, model_w, model_h, orig_w, orig_h)
-                hist_h, hist_s, hist_v = extractor.extract(frame, (x1, y1, x2, y2))
-                if hist_h is not None:
-                    track.name, track.name_confidence, _ = identifier.identify(hist_h, hist_s, hist_v)
+                if track.name == "Unknown" or track.frames_since_identified >= 30:
+                    x1, y1, x2, y2 = bbox_to_pixel_xyxy(track.bbox, model_w, model_h, orig_w, orig_h)
+                    hist_h, hist_s, hist_v = extractor.extract(frame, (x1, y1, x2, y2))
+                    if hist_h is not None:
+                        track.name, track.name_confidence, _ = identifier.identify(hist_h, hist_s, hist_v)
+                        track.frames_since_identified = 0
 
             if debug:
                 # Draw tentative tracks

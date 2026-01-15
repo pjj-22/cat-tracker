@@ -90,7 +90,8 @@ def build_profiles_from_sessions(session_dirs, output_path="cat_profiles.json"):
 
             if hist_h is not None:
                 # Use relative path as source identifier for deduplication
-                source_id = f"{os.path.basename(session_dir)}/{img_rel_path}"
+                session_name = os.path.basename(session_dir.rstrip('/'))
+                source_id = f"{session_name}/{img_rel_path}"
                 if identifier.add_training_sample(cat_name, hist_h, hist_s, hist_v, source_path=source_id):
                     session_images += 1
                 else:

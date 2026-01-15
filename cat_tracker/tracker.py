@@ -35,7 +35,7 @@ class Track:
         self.hits = 1  # Number of times this track was matched
         self.missed_frames = 0  # Consecutive frames without detection
         self.age = 0  # Total frames this track has existed
-
+        self.frames_since_identified = 0
         # Cat identification
         self.name = "Unknown"
         self.name_confidence = 0.0
@@ -59,6 +59,7 @@ class Track:
         self.confidence = confidence
         self.hits += 1
         self.missed_frames = 0
+        self.frames_since_identified += 1
     
     def mark_missed(self):
         """Mark this track as not detected in current frame."""
