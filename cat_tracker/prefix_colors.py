@@ -140,7 +140,8 @@ class ColorHistogramIdentifier:
                 'hist_h': np.array(profile_data['hist_h'], dtype=np.float32),
                 'hist_s': np.array(profile_data['hist_s'], dtype=np.float32),
                 'hist_v': np.array(profile_data['hist_v'], dtype=np.float32),
-                'sample_count': profile_data.get('sample_count', 1)
+                'sample_count': profile_data.get('sample_count', 1),
+                'sources': profile_data.get('sources', [])
             }
 
     def save_profiles(self):
@@ -153,39 +154,58 @@ class ColorHistogramIdentifier:
                 'hist_h': profile['hist_h'].tolist(),
                 'hist_s': profile['hist_s'].tolist(),
                 'hist_v': profile['hist_v'].tolist(),
-                'sample_count': profile['sample_count']
+                'sample_count': profile['sample_count'],
+                'sources': profile.get('sources', [])
             }
 
         with open(self.profile_path, "w") as f:
             json.dump(data, f, indent=2)
 
-    def add_training_sample(self, cat_name, hist_h, hist_s, hist_v):
+    def add_training_sample(self, cat_name, hist_h, hist_s, hist_v, source_path=None):
         """
         Add a training sample for a cat.
 
         If the cat already exists, this updates the profile
-        using a running average.
+        using a running average. Tracks source paths to prevent
+        counting the same image twice.
 
         Args:
             cat_name: Name of the cat
             hist_h, hist_s, hist_v: Normalized HSV histograms
+            source_path: Optional path to source image (for deduplication)
+
+        Returns:
+            True if sample was added, False if skipped (duplicate)
         """
         if cat_name not in self.profiles:
             self.profiles[cat_name] = {
                 'hist_h': hist_h.copy(),
                 'hist_s': hist_s.copy(),
                 'hist_v': hist_v.copy(),
-                'sample_count': 1
+                'sample_count': 1,
+                'sources': [source_path] if source_path else []
             }
-            return
+            return True
 
         profile = self.profiles[cat_name]
+
+        # Skip if this source was already processed
+        if source_path and source_path in profile.get('sources', []):
+            return False
+
         n = profile['sample_count']
 
         profile['hist_h'] = (profile['hist_h'] * n + hist_h) / (n + 1)
         profile['hist_s'] = (profile['hist_s'] * n + hist_s) / (n + 1)
         profile['hist_v'] = (profile['hist_v'] * n + hist_v) / (n + 1)
         profile['sample_count'] = n + 1
+
+        if source_path:
+            if 'sources' not in profile:
+                profile['sources'] = []
+            profile['sources'].append(source_path)
+
+        return True
 
     def identify(self, hist_h, hist_s, hist_v):
         """

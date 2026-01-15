@@ -36,6 +36,7 @@ def build_profiles_from_sessions(session_dirs, output_path="cat_profiles.json"):
 
     total_sessions = 0
     total_images = 0
+    skipped_images = 0
 
     for session_dir in session_dirs:
         if not os.path.exists(session_dir):
@@ -62,6 +63,7 @@ def build_profiles_from_sessions(session_dirs, output_path="cat_profiles.json"):
         print(f"  Images labeled: {len(labels)}")
 
         session_images = 0
+        session_skipped = 0
 
         for img_rel_path, cat_num in labels.items():
             cat_name = cat_names.get(cat_num)
@@ -87,12 +89,21 @@ def build_profiles_from_sessions(session_dirs, output_path="cat_profiles.json"):
             hist_h, hist_s, hist_v = extractor.extract(img_rgb, bbox)
 
             if hist_h is not None:
-                identifier.add_training_sample(cat_name, hist_h, hist_s, hist_v)
-                session_images += 1
+                # Use relative path as source identifier for deduplication
+                source_id = f"{os.path.basename(session_dir)}/{img_rel_path}"
+                if identifier.add_training_sample(cat_name, hist_h, hist_s, hist_v, source_path=source_id):
+                    session_images += 1
+                else:
+                    session_skipped += 1
 
-        print(f"  Processed: {session_images} images")
+        print(f"  Processed: {session_images} new images", end="")
+        if session_skipped > 0:
+            print(f" ({session_skipped} already in profile)")
+        else:
+            print()
         total_sessions += 1
         total_images += session_images
+        skipped_images += session_skipped
 
     if not identifier.profiles:
         print("\nERROR: No valid profiles created")
