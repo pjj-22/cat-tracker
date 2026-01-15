@@ -110,7 +110,7 @@ def main(duration=None):
                         track_dir = f"{session_dir}/track_{track_id:03d}"
                         frame_num = track_frame_counts[track_id]
                         filename = f"{track_dir}/{frame_num:05d}.jpg"
-                        cv2.imwrite(filename, cv2.cvtColor(crop, cv2.COLOR_RGB2BGR))
+                        cv2.imwrite(filename, crop)
                         track_last_save[track_id] = track_frame_counts[track_id]
 
                 track_frame_counts[track_id] += 1
