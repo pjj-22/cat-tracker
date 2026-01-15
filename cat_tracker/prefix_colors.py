@@ -3,7 +3,7 @@ Prefix colors to compute the area color.
 Used to determine histogram of color different to standard.
 
 This implementation replaces full prefix-sum histograms with
-Rgeion of interest based masked Hue Saturation Value histograms for speed and memory efficiency.
+Region of interest based masked Hue Saturation Value histograms for speed and memory efficiency.
 """
 
 import cv2
@@ -187,17 +187,17 @@ class ColorHistogramIdentifier:
         profile['hist_v'] = (profile['hist_v'] * n + hist_v) / (n + 1)
         profile['sample_count'] = n + 1
 
-    def identify(self, hist_h, hist_s, hist_v, threshold=0.35):
+    def identify(self, hist_h, hist_s, hist_v):
         """
         Identify cat by comparing histograms to learned profiles.
+        Always returns the best matching cat if profiles exist.
 
         Args:
             hist_h, hist_s, hist_v: HSV histograms
-            threshold: Maximum allowed Bhattacharyya distance
 
         Returns:
-            cat_name: Best matching cat name or "Unknown"
-            confidence: Confidence score (0–1)
+            cat_name: Best matching cat name or "Unknown" if no profiles
+            confidence: Confidence score (0-1)
             debug_info: Distances to each profile
         """
         if not self.profiles:
@@ -215,11 +215,8 @@ class ColorHistogramIdentifier:
 
         best_cat = min(distances, key=distances.get)
         best_distance = distances[best_cat]
-
-        if best_distance > threshold:
-            return "Unknown", 1.0 - best_distance, distances
-
         confidence = max(0.0, 1.0 - best_distance)
+        
         return best_cat, confidence, distances
 
     @staticmethod
