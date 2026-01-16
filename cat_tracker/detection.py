@@ -25,7 +25,7 @@ TRACK_COLORS = [
 CAT_CLASS_ID = 15
 
 # Default model path
-DEFAULT_MODEL_PATH = "yolov8n.onnx"
+DEFAULT_MODEL_PATH = "yolo11s.onnx"
 
 
 def load_yolo_model(model_path=DEFAULT_MODEL_PATH):
@@ -59,7 +59,7 @@ def load_yolo_model(model_path=DEFAULT_MODEL_PATH):
     return session, input_name, model_h, model_w
 
 
-def parse_yolo_output(output, conf_threshold=0.2, iou_threshold=0.4):
+def parse_yolo_output(output, conf_threshold=0.15, iou_threshold=0.4):
     """
     Parse YOLOv8 ONNX output and return cat detections.
     """
