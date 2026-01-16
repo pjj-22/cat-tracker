@@ -25,7 +25,7 @@ TRACK_COLORS = [
 CAT_CLASS_ID = 15
 
 # Default model path
-DEFAULT_MODEL_PATH = "yolov8s.onnx"
+DEFAULT_MODEL_PATH = "yolov8n.onnx"
 
 
 def load_yolo_model(model_path=DEFAULT_MODEL_PATH):
@@ -62,48 +62,45 @@ def load_yolo_model(model_path=DEFAULT_MODEL_PATH):
 def parse_yolo_output(output, conf_threshold=0.2, iou_threshold=0.4):
     """
     Parse YOLOv8 ONNX output and return cat detections.
-
-    Args:
-        output: Raw YOLO model output
-        conf_threshold: Minimum confidence score for detections
-        iou_threshold: IoU threshold for Non-Maximum Suppression
-
-    Returns:
-        List of detection dicts with 'box' and 'confidence' keys.
-        Box format: [x_center, y_center, width, height] in model coordinates.
     """
     output = output[0].T
-    boxes, scores, class_ids = [], [], []
+    boxes, boxes_tl, scores = [], [], []
 
     for detection in output:
         box = detection[:4]
         class_scores = detection[4:]
+
         class_id = np.argmax(class_scores)
         confidence = class_scores[class_id]
 
         if class_id == CAT_CLASS_ID and confidence > conf_threshold:
+            x, y, w, h = box
             boxes.append(box)
+            boxes_tl.append([x - w / 2, y - h / 2, w, h])
             scores.append(float(confidence))
-            class_ids.append(class_id)
 
     if len(boxes) == 0:
         return []
 
-    boxes = np.array(boxes)
-    indices = cv2.dnn.NMSBoxes(boxes.tolist(), scores, conf_threshold, iou_threshold)
+    indices = cv2.dnn.NMSBoxes(
+        boxes_tl,
+        scores,
+        conf_threshold,
+        iou_threshold,
+    )
 
-    # Flatten indices for compatibility across OpenCV versions
     if len(indices) > 0:
         indices = indices.flatten()
 
     detections = []
     for i in indices:
         detections.append({
-            'box': boxes[i],
+            'box': np.array(boxes[i]),
             'confidence': scores[i]
         })
 
     return detections
+
 
 
 def preprocess_frame(frame, model_w, model_h):
