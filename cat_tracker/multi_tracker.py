@@ -88,7 +88,6 @@ class MultiTracker:
                 iou_score = iou(track.predicted_bbox, det['box'])
                 cost_matrix[i, j] = 1 - iou_score
         
-        # Solve assignment problem
         track_indices, det_indices = linear_sum_assignment(cost_matrix)
         
         # Filter out poor matches

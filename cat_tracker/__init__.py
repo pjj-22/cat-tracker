@@ -13,6 +13,7 @@ from .detection import (
     CAT_CLASS_ID,
     DEFAULT_MODEL_PATH,
 )
+from .spatial import PositionLogger
 
 __all__ = [
     'MultiTracker',
@@ -25,4 +26,5 @@ __all__ = [
     'TRACK_COLORS',
     'CAT_CLASS_ID',
     'DEFAULT_MODEL_PATH',
+    'PositionLogger',
 ]

@@ -83,12 +83,10 @@ def main(duration=None):
             frame = picam2.capture_array()
             orig_h, orig_w = frame.shape[:2]
 
-            # YOLO detection
             input_data = preprocess_frame(frame, model_w, model_h)
             outputs = session_onnx.run(None, {input_name: input_data})[0]
             detections = parse_yolo_output(outputs)
 
-            # Update tracker
             confirmed_tracks = tracker.update(detections)
 
             # Save frames for each track (use clean frame without overlays)

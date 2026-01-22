@@ -65,7 +65,6 @@ class ColorHistogramExtractor:
         if roi.size == 0:
             return None, None, None
 
-        # Convert ROI to HSV color space
         hsv = cv2.cvtColor(roi, cv2.COLOR_RGB2HSV)
 
         # Mask out background, shadows, and low-color pixels
@@ -78,7 +77,6 @@ class ColorHistogramExtractor:
         if np.count_nonzero(mask) < 10:
             return None, None, None
 
-        # Compute histograms for each channel
         hist_h = cv2.calcHist(
             [hsv], [0], mask,
             [self.bins_h], [0, 180]

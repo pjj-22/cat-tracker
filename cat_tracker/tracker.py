@@ -23,20 +23,16 @@ class Track:
         self.id = Track._next_id
         Track._next_id += 1
 
-        # Kalman filter for motion prediction
         self.kf = BBoxKalmanFilter(bbox)
 
-        # Current state
         self.bbox = bbox
         self.predicted_bbox = bbox
         self.confidence = confidence
 
-        # Track management
         self.hits = 1  # Number of times this track was matched
         self.missed_frames = 0  # Consecutive frames without detection
         self.age = 0  # Total frames this track has existed
         self.frames_since_identified = 0
-        # Cat identification
         self.name = "Unknown"
         self.name_confidence = 0.0
 

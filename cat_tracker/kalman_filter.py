@@ -52,7 +52,6 @@ class BBoxKalmanFilter:
         # Process uncertainty (how much we trust the motion model)
         self.kf.Q[4:, 4:] *= 0.01
         
-        # Initial state
         self.kf.x[:4] = bbox.reshape(4, 1)
         
     def predict(self):

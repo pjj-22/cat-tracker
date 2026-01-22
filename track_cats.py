@@ -18,6 +18,7 @@ from cat_tracker.detection import (
     preprocess_frame,
     TRACK_COLORS,
 )
+from cat_tracker.spatial import PositionLogger
 
 
 def draw_track(frame, track, model_w, model_h, debug=False, is_tentative=False):
@@ -70,7 +71,7 @@ def stop_recording(writer, path, frames):
     print(f"[REC] Saved {frames} frames → {path}")
 
 
-def main(debug=True, record=False, fps=20.0):
+def main(debug=True, record=False, fps=20.0, log_positions=False):
     print("Loading ONNX model...")
     session, input_name, model_h, model_w = load_yolo_model()
 
@@ -85,6 +86,13 @@ def main(debug=True, record=False, fps=20.0):
     tracker = MultiTracker(max_missed=15, min_hits=3, iou_threshold=0.3)
     extractor = ColorHistogramExtractor()
     identifier = ColorHistogramIdentifier()
+
+    pos_logger = None
+    log_count = 0
+
+    if log_positions:
+        pos_logger = PositionLogger()
+        print("[LOG] Position logging enabled → occupancy_log.csv")
 
     out = None
     output_path = None
@@ -130,6 +138,13 @@ def main(debug=True, record=False, fps=20.0):
                         draw_track(frame, track, model_w, model_h, debug, True)
 
             for track in confirmed_tracks:
+                # Log pixel position
+                if pos_logger is not None:
+                    x_center = track.bbox[0] / model_w * orig_w
+                    y_center = track.bbox[1] / model_h * orig_h
+                    pos_logger.log(track.name, x_center, y_center)
+                    log_count += 1
+
                 draw_track(frame, track, model_w, model_h, debug)
 
             if debug:
@@ -152,6 +167,10 @@ def main(debug=True, record=False, fps=20.0):
             cv2.putText(frame, f"REC: {'ON' if recording else 'OFF'}", (10, 90),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7,
                         (0, 0, 255) if recording else (200, 200, 200), 2)
+
+            if log_positions:
+                cv2.putText(frame, f"LOG: {log_count}", (10, 120),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
             if out is not None:
                 out.write(frame)
@@ -181,6 +200,10 @@ def main(debug=True, record=False, fps=20.0):
         if out is not None:
             stop_recording(out, output_path, written_frames)
 
+        if pos_logger is not None:
+            pos_logger.close()
+            print(f"[LOG] Logged {log_count} positions to occupancy_log.csv")
+
         picam2.stop()
         cv2.destroyAllWindows()
 
@@ -190,6 +213,8 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true", help="Enable debug overlays")
     parser.add_argument("--record", action="store_true", help="Start with recording enabled")
     parser.add_argument("--fps", type=float, default=20.0, help="Recording FPS")
+    parser.add_argument("--log-positions", action="store_true",
+                        help="Log pixel positions to occupancy_log.csv")
 
     args = parser.parse_args()
-    main(debug=args.debug, record=args.record, fps=args.fps)
+    main(debug=args.debug, record=args.record, fps=args.fps, log_positions=args.log_positions)
