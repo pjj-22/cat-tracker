@@ -46,7 +46,7 @@ class ServoController:
     MODE_AUTO = 2
     
     def __init__(self, pan_channel=0, tilt_channel=1, enabled=True,
-                 pan_center=118, tilt_center=90):
+                 pan_center=60, tilt_center=90):
         self.enabled = enabled and SERVO_AVAILABLE
         self.mode = self.MODE_AUTO if self.enabled else self.MODE_OFF
 
