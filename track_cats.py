@@ -45,22 +45,27 @@ class ServoController:
     MODE_MANUAL = 1
     MODE_AUTO = 2
     
-    def __init__(self, pan_channel=0, tilt_channel=1, enabled=True):
+    def __init__(self, pan_channel=0, tilt_channel=1, enabled=True,
+                 pan_center=118, tilt_center=90):
         self.enabled = enabled and SERVO_AVAILABLE
         self.mode = self.MODE_AUTO if self.enabled else self.MODE_OFF
-        
+
         if not self.enabled:
             return
-        
+
         try:
             self.servo = ServoKit(num_ports=max(pan_channel, tilt_channel) + 1)
             self.pan_ch = pan_channel
             self.tilt_ch = tilt_channel
-            
+
             self.deadzone = 50       # pixels from center to ignore
             self.max_step = 5        # max degrees per frame
             self.manual_step = 5     # manual control step size
-            
+
+            # Center positions (adjust for mounting offset)
+            self.pan_center = pan_center
+            self.tilt_center = tilt_center
+
             # Angle limits (adjust based on your mount)
             self.pan_min = 45
             self.pan_max = 180
@@ -82,10 +87,8 @@ class ServoController:
         if not self.enabled:
             return
         try:
-            center_pan = (self.pan_min + self.pan_max) // 2
-            center_tilt = (self.tilt_min + self.tilt_max) // 2
-            self.servo.setAngle(self.pan_ch, center_pan)
-            self.servo.setAngle(self.tilt_ch, center_tilt)
+            self.servo.setAngle(self.pan_ch, self.pan_center)
+            self.servo.setAngle(self.tilt_ch, self.tilt_center)
         except Exception as e:
             print(f"[SERVO] Error centering: {e}")
     
