@@ -63,7 +63,7 @@ class ServoController:
             
             # Angle limits (adjust based on your mount)
             self.pan_min = 45
-            self.pan_max = 135
+            self.pan_max = 180
             self.tilt_min = 60
             self.tilt_max = 120
             
