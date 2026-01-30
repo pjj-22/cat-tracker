@@ -1,6 +1,5 @@
 """
 Multi-cat tracking with Kalman filters and Hungarian algorithm.
-Now with optional servo auto-follow!
 """
 
 from picamera2 import Picamera2
@@ -22,7 +21,6 @@ from cat_tracker.detection import (
 )
 from cat_tracker.spatial import PositionLogger
 
-# Try to import servo control
 try:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "example", "Jetson"))
     from ServoKit import ServoKit
@@ -73,11 +71,10 @@ class ServoController:
             self.tilt_max = 120
 
             # Patrol settings (when no cat detected)
-            self.patrol_step = 0.15
+            self.patrol_step = 0.6
             self.patrol_direction = 1
-            self.patrol_pan = float(pan_center)  # track position internally
+            self.patrol_pan = float(pan_center)
 
-            # Center servos
             self.center()
             print(f"[SERVO] Initialized (Pan: {self.pan_ch}, Tilt: {self.tilt_ch})")
             print(f"[SERVO] Mode: AUTO-FOLLOW")
