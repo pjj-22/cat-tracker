@@ -72,9 +72,10 @@ class ServoController:
             self.tilt_min = 60
             self.tilt_max = 120
 
-            
-            self.patrol_step = 0.15 
+            # Patrol settings (when no cat detected)
+            self.patrol_step = 0.15
             self.patrol_direction = 1
+            self.patrol_pan = float(pan_center)  # track position internally
 
             # Center servos
             self.center()
@@ -93,6 +94,7 @@ class ServoController:
         try:
             self.servo.setAngle(self.pan_ch, self.pan_center)
             self.servo.setAngle(self.tilt_ch, self.tilt_center)
+            self.patrol_pan = float(self.pan_center)
         except Exception as e:
             print(f"[SERVO] Error centering: {e}")
     
@@ -180,7 +182,8 @@ class ServoController:
             
             self.servo.setAngle(self.pan_ch, new_pan)
             self.servo.setAngle(self.tilt_ch, new_tilt)
-            
+            self.patrol_pan = new_pan  # sync for smooth patrol resume
+
         except Exception as e:
             print(f"[SERVO] Auto-follow error: {e}")
 
@@ -190,17 +193,15 @@ class ServoController:
             return
 
         try:
-            current_pan = self.servo.getAngle(self.pan_ch)
-
             # Reverse direction at limits
-            if current_pan >= self.pan_max - 5:
+            if self.patrol_pan >= self.pan_max - 5:
                 self.patrol_direction = -1
-            elif current_pan <= self.pan_min + 5:
+            elif self.patrol_pan <= self.pan_min + 5:
                 self.patrol_direction = 1
 
-            new_pan = current_pan + (self.patrol_step * self.patrol_direction)
-            new_pan = max(self.pan_min, min(self.pan_max, new_pan))
-            self.servo.setAngle(self.pan_ch, new_pan)
+            self.patrol_pan += self.patrol_step * self.patrol_direction
+            self.patrol_pan = max(self.pan_min, min(self.pan_max, self.patrol_pan))
+            self.servo.setAngle(self.pan_ch, self.patrol_pan)
 
         except Exception as e:
             print(f"[SERVO] Patrol error: {e}")
