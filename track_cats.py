@@ -67,11 +67,15 @@ class ServoController:
             self.tilt_center = tilt_center
 
             # Angle limits (adjust based on your mount)
-            self.pan_min = 45
+            self.pan_min = 0
             self.pan_max = 180
             self.tilt_min = 60
             self.tilt_max = 120
+
             
+            self.patrol_step = 0.15 
+            self.patrol_direction = 1
+
             # Center servos
             self.center()
             print(f"[SERVO] Initialized (Pan: {self.pan_ch}, Tilt: {self.tilt_ch})")
@@ -179,7 +183,28 @@ class ServoController:
             
         except Exception as e:
             print(f"[SERVO] Auto-follow error: {e}")
-    
+
+    def patrol(self):
+        """Gentle patrol sweep when no cat is detected."""
+        if not self.enabled or self.mode != self.MODE_AUTO:
+            return
+
+        try:
+            current_pan = self.servo.getAngle(self.pan_ch)
+
+            # Reverse direction at limits
+            if current_pan >= self.pan_max - 5:
+                self.patrol_direction = -1
+            elif current_pan <= self.pan_min + 5:
+                self.patrol_direction = 1
+
+            new_pan = current_pan + (self.patrol_step * self.patrol_direction)
+            new_pan = max(self.pan_min, min(self.pan_max, new_pan))
+            self.servo.setAngle(self.pan_ch, new_pan)
+
+        except Exception as e:
+            print(f"[SERVO] Patrol error: {e}")
+
     def get_angles(self):
         """Get current servo angles for display."""
         if not self.enabled:
@@ -318,18 +343,21 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
                         track.frames_since_identified = 0
 
             target_track = None
-            if servo_ctrl.mode == ServoController.MODE_AUTO and confirmed_tracks:
-                if target_track_id is not None:
-                    target_track = next((t for t in confirmed_tracks if t.id == target_track_id), None)
-                    if target_track is None:
+            if servo_ctrl.mode == ServoController.MODE_AUTO:
+                if confirmed_tracks:
+                    if target_track_id is not None:
+                        target_track = next((t for t in confirmed_tracks if t.id == target_track_id), None)
+                        if target_track is None:
+                            target_track = confirmed_tracks[0]
+                    else:
                         target_track = confirmed_tracks[0]
+
+                    x_center = target_track.bbox[0] / model_w * orig_w
+                    y_center = target_track.bbox[1] / model_h * orig_h
+
+                    servo_ctrl.auto_follow(x_center, y_center, orig_w, orig_h)
                 else:
-                    target_track = confirmed_tracks[0]
-                
-                x_center = target_track.bbox[0] / model_w * orig_w
-                y_center = target_track.bbox[1] / model_h * orig_h
-                
-                servo_ctrl.auto_follow(x_center, y_center, orig_w, orig_h)
+                    servo_ctrl.patrol()
 
             if debug:
                 for track in tracker.tracks:
