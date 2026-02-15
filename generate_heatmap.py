@@ -13,9 +13,8 @@ import argparse
 
 
 def load_positions(csv_path, cat_name=None, hours=24):
-    """Load positions from CSV."""
-    positions_x = []
-    positions_y = []
+    """Load positions and bbox dimensions from CSV."""
+    positions = []
 
     cutoff = datetime.now() - timedelta(hours=hours)
 
@@ -30,58 +29,72 @@ def load_positions(csv_path, cat_name=None, hours=24):
                 if cat_name and row['cat_name'] != cat_name:
                     continue
 
-                positions_x.append(float(row['pixel_x']))
-                positions_y.append(float(row['pixel_y']))
+                # Handle old format (no width/height) and new format
+                width = float(row.get('width', 50))
+                height = float(row.get('height', 50))
+
+                positions.append({
+                    'x': float(row['pixel_x']),
+                    'y': float(row['pixel_y']),
+                    'w': width,
+                    'h': height
+                })
     except FileNotFoundError:
         print(f"ERROR: {csv_path} not found")
         print("Run: python3 track_cats.py --log-positions")
-        return None, None
+        return None
 
-    return np.array(positions_x), np.array(positions_y)
+    return positions
 
 
-def generate_heatmap(cat_name=None, hours=24):
-    """Generate heatmap from position data."""
-    x, y = load_positions('occupancy_log.csv', cat_name, hours)
+def generate_heatmap(cat_name=None, hours=24, width=640, height=480):
+    """Generate heatmap from position data using full bounding boxes."""
+    positions = load_positions('occupancy_log.csv', cat_name, hours)
 
-    if x is None or len(x) == 0:
+    if positions is None or len(positions) == 0:
         print(f"No data for {cat_name or 'any cat'} in last {hours} hours")
         return
+
+    # Create accumulator for bbox regions
+    heatmap = np.zeros((height, width), dtype=np.float32)
+
+    for pos in positions:
+        # Calculate bbox corners from center + dimensions
+        x1 = int(max(0, pos['x'] - pos['w'] / 2))
+        y1 = int(max(0, pos['y'] - pos['h'] / 2))
+        x2 = int(min(width, pos['x'] + pos['w'] / 2))
+        y2 = int(min(height, pos['y'] + pos['h'] / 2))
+
+        # Fill in the bbox region
+        heatmap[y1:y2, x1:x2] += 1
 
     # Create figure
     fig, ax = plt.subplots(figsize=(12, 9))
 
-    # 2D histogram
-    h, xedges, yedges = np.histogram2d(x, y, bins=50)
+    # Apply gaussian blur for smoother visualization
+    from scipy.ndimage import gaussian_filter
+    heatmap_smooth = gaussian_filter(heatmap, sigma=8)
 
     # Plot heatmap
-    extent = [xedges[0], xedges[-1], yedges[-1], yedges[0]]  # Note: y-axis inverted for image coordinates
-    im = ax.imshow(h.T, origin='upper', extent=extent,
-                   cmap='hot', aspect='auto', interpolation='gaussian',
-                   alpha=0.8)
+    im = ax.imshow(heatmap_smooth, origin='upper', cmap='hot',
+                   aspect='auto', interpolation='bilinear', alpha=0.85)
 
     # Formatting
     title = f"{cat_name or 'All Cats'} - Last {hours} Hours"
-    ax.set_xlabel('Camera Width (pixels)', fontsize=12)
-    ax.set_ylabel('Camera Height (pixels)', fontsize=12)
+    ax.set_xlabel('X (pixels)', fontsize=12)
+    ax.set_ylabel('Y (pixels)', fontsize=12)
     ax.set_title(title, fontsize=16, fontweight='bold')
-
-    # Set axis limits to camera resolution
-    ax.set_xlim(0, 640)
-    ax.set_ylim(480, 0)  # Inverted for image coordinates
 
     # Colorbar
     cbar = plt.colorbar(im, ax=ax)
     cbar.set_label('Time Spent (frames)', fontsize=12)
 
-    # Stats box
-    stats_text = f"Total positions: {len(x)}\n"
-    stats_text += f"Tracking time: ~{len(x)/12:.1f} minutes"
+    # Stats
+    stats_text = f"Positions logged: {len(positions)}"
     ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
            fontsize=10, verticalalignment='top',
            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
-    # Grid
     ax.grid(True, alpha=0.3, linestyle='--')
 
     plt.tight_layout()
@@ -89,7 +102,7 @@ def generate_heatmap(cat_name=None, hours=24):
     # Save
     filename = f"heatmap_{cat_name or 'all'}_{hours}h.png"
     plt.savefig(filename, dpi=150, bbox_inches='tight')
-    print(f"✓ Saved heatmap to {filename}")
+    print(f"Saved heatmap to {filename}")
 
     plt.show()
 
@@ -98,6 +111,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Generate position heatmaps')
     parser.add_argument('--cat', help='Filter by cat name')
     parser.add_argument('--hours', type=int, default=24, help='Last N hours')
+    parser.add_argument('--width', type=int, default=640, help='Camera width')
+    parser.add_argument('--height', type=int, default=480, help='Camera height')
     args = parser.parse_args()
 
-    generate_heatmap(cat_name=args.cat, hours=args.hours)
+    generate_heatmap(cat_name=args.cat, hours=args.hours,
+                     width=args.width, height=args.height)

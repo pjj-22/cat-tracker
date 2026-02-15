@@ -13,7 +13,7 @@ from .detection import (
     CAT_CLASS_ID,
     DEFAULT_MODEL_PATH,
 )
-from .spatial import PositionLogger
+from .spatial import PositionLogger, Calibration, ZoneAnalyzer
 
 __all__ = [
     'MultiTracker',
@@ -27,4 +27,6 @@ __all__ = [
     'CAT_CLASS_ID',
     'DEFAULT_MODEL_PATH',
     'PositionLogger',
+    'Calibration',
+    'ZoneAnalyzer',
 ]

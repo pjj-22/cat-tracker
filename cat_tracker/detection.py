@@ -44,10 +44,10 @@ def load_yolo_model(model_path=DEFAULT_MODEL_PATH):
     if not os.path.exists(model_path):
         raise FileNotFoundError(
             f"YOLO model not found: {model_path}\n\n"
-            f"Please download the YOLOv8 ONNX model:\n"
+            f"Please download the YOLO11 ONNX model:\n"
             f"  1. Install ultralytics: pip install ultralytics\n"
-            f"  2. Export model: yolo export model=yolov8s.pt format=onnx\n"
-            f"  3. Move yolov8s.onnx to this directory\n\n"
+            f"  2. Export model: yolo export model=yolo11s.pt format=onnx\n"
+            f"  3. Move yolo11s.onnx to this directory\n\n"
             f"Or download directly from Ultralytics."
         )
 

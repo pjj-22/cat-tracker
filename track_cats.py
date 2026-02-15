@@ -20,6 +20,7 @@ from cat_tracker.detection import (
     TRACK_COLORS,
 )
 from cat_tracker.spatial import PositionLogger
+from cat_tracker.config import load_config
 
 try:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "example", "Jetson"))
@@ -271,30 +272,59 @@ def stop_recording(writer, path, frames):
     print(f"[REC] Saved {frames} frames → {path}")
 
 
-def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False):
+def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False,
+         config_path=None):
+    cfg = load_config(config_path)
+
+    det_cfg = cfg['detection']
+    trk_cfg = cfg['tracking']
+    id_cfg = cfg['identification']
+    cam_cfg = cfg['camera']
+    srv_cfg = cfg['servo']
+    log_cfg = cfg['logging']
+
     print("Loading ONNX model...")
-    session, input_name, model_h, model_w = load_yolo_model()
+    session, input_name, model_h, model_w = load_yolo_model(det_cfg['model_path'])
 
     picam2 = Picamera2()
-    config = picam2.create_preview_configuration(
-        main={"size": (640, 480), "format": "RGB888"}
+    cam_config = picam2.create_preview_configuration(
+        main={"size": (cam_cfg['width'], cam_cfg['height']), "format": "RGB888"}
     )
-    picam2.configure(config)
+    picam2.configure(cam_config)
     picam2.start()
     time.sleep(2)
 
-    tracker = MultiTracker(max_missed=15, min_hits=3, iou_threshold=0.3)
-    extractor = ColorHistogramExtractor()
-    identifier = ColorHistogramIdentifier()
-    
-    servo_ctrl = ServoController(enabled=not no_servo)
+    tracker = MultiTracker(
+        max_missed=trk_cfg['max_missed'],
+        min_hits=trk_cfg['min_hits'],
+        iou_threshold=trk_cfg['iou_threshold'],
+    )
+    extractor = ColorHistogramExtractor(
+        bins_h=id_cfg['bins_h'],
+        bins_s=id_cfg['bins_s'],
+        bins_v=id_cfg['bins_v'],
+        min_saturation=id_cfg['min_saturation'],
+        min_value=id_cfg['min_value'],
+    )
+    identifier = ColorHistogramIdentifier(
+        profile_path=id_cfg['profile_path'],
+        hsv_weights=id_cfg['hsv_weights'],
+    )
+
+    servo_ctrl = ServoController(
+        pan_channel=srv_cfg['pan_channel'],
+        tilt_channel=srv_cfg['tilt_channel'],
+        enabled=srv_cfg['enabled'] and not no_servo,
+        pan_center=srv_cfg['pan_center'],
+        tilt_center=srv_cfg['tilt_center'],
+    )
 
     pos_logger = None
     log_count = 0
 
     if log_positions:
-        pos_logger = PositionLogger()
-        print("[LOG] Position logging enabled → occupancy_log.csv")
+        pos_logger = PositionLogger(log_cfg['position_log_path'])
+        print(f"[LOG] Position logging enabled → {log_cfg['position_log_path']}")
 
     out = None
     output_path = None
@@ -325,7 +355,11 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
 
             input_data = preprocess_frame(frame, model_w, model_h)
             outputs = session.run(None, {input_name: input_data})[0]
-            detections = parse_yolo_output(outputs)
+            detections = parse_yolo_output(
+                outputs,
+                conf_threshold=det_cfg['confidence_threshold'],
+                iou_threshold=det_cfg['iou_threshold'],
+            )
 
             confirmed_tracks = tracker.update(detections)
 
@@ -488,7 +522,9 @@ if __name__ == "__main__":
     parser.add_argument("--log-positions", action="store_true",
                         help="Log pixel positions to occupancy_log.csv")
     parser.add_argument("--no-servo", action="store_true", help="Disable servo control")
+    parser.add_argument("--config", default=None, help="Path to config.yaml")
 
     args = parser.parse_args()
-    main(debug=args.debug, record=args.record, fps=args.fps, 
-         log_positions=args.log_positions, no_servo=args.no_servo)
+    main(debug=args.debug, record=args.record, fps=args.fps,
+         log_positions=args.log_positions, no_servo=args.no_servo,
+         config_path=args.config)
