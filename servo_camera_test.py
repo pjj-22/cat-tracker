@@ -6,7 +6,7 @@ Control a pan/tilt servo mount while viewing the camera feed.
 Controls:
     Arrow Keys: Pan (left/right) and Tilt (up/down)
     WASD: Alternative pan/tilt control
-    r: Reset servos to center (90 degrees)
+    r: Reset servos to center position
     c: Capture image
     +/-: Adjust step size
     q: Quit
@@ -38,10 +38,15 @@ except ImportError:
 class PanTiltController:
     """Controller for pan/tilt servo mount."""
 
-    def __init__(self, pan_channel=0, tilt_channel=1, num_ports=2):
+    def __init__(self, pan_channel=0, tilt_channel=1, num_ports=2,
+                 pan_center=118, tilt_center=90):
         self.pan_channel = pan_channel
         self.tilt_channel = tilt_channel
         self.step = 5
+
+        # Center positions (adjust for mounting offset)
+        self.pan_center = pan_center
+        self.tilt_center = tilt_center
 
         # Angle limits
         self.pan_min = 0
@@ -53,8 +58,8 @@ class PanTiltController:
             self.servo = ServoKit(num_ports)
         else:
             self.servo = None
-            self._mock_pan = 90
-            self._mock_tilt = 90
+            self._mock_pan = pan_center
+            self._mock_tilt = tilt_center
 
     @property
     def pan_angle(self):
@@ -85,8 +90,8 @@ class PanTiltController:
         self._set_tilt(new_angle)
 
     def reset(self):
-        self._set_pan(90)
-        self._set_tilt(90)
+        self._set_pan(self.pan_center)
+        self._set_tilt(self.tilt_center)
 
     def _set_pan(self, angle):
         if self.servo:

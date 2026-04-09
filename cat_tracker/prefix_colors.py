@@ -113,14 +113,17 @@ class ColorHistogramIdentifier:
     to previously learned color profiles.
     """
 
-    def __init__(self, profile_path="cat_profiles.json"):
+    def __init__(self, profile_path="cat_profiles.json", hsv_weights=None):
         """
         Load learned cat color profiles from disk.
 
         Args:
             profile_path: Path to JSON file containing profiles
+            hsv_weights: (weight_h, weight_s, weight_v) for Bhattacharyya
+                         distance. Defaults to (0.7, 0.2, 0.1).
         """
         self.profile_path = profile_path
+        self.hsv_weights = tuple(hsv_weights) if hsv_weights else (0.7, 0.2, 0.1)
         self.profiles = {}
 
         if os.path.exists(profile_path):
@@ -237,10 +240,11 @@ class ColorHistogramIdentifier:
         
         return best_cat, confidence, distances
 
-    @staticmethod
-    def _bhattacharyya_distance(h1_h, h1_s, h1_v, h2_h, h2_s, h2_v):
+    def _bhattacharyya_distance(self, h1_h, h1_s, h1_v, h2_h, h2_s, h2_v):
         """
         Compute Bhattacharyya distance between two HSV histograms.
+
+        Uses per-channel weights stored in ``self.hsv_weights``.
 
         Returns:
             distance: 0 = identical, 1 = completely different
@@ -249,7 +253,8 @@ class ColorHistogramIdentifier:
         bc_s = np.sum(np.sqrt(h1_s * h2_s))
         bc_v = np.sum(np.sqrt(h1_v * h2_v))
 
-        bc = (bc_h + bc_s + bc_v) / 3.0
+        w_h, w_s, w_v = self.hsv_weights
+        bc = w_h * bc_h + w_s * bc_s + w_v * bc_v
         bc = np.clip(bc, 0.0, 1.0)
 
         return np.sqrt(1.0 - bc)
