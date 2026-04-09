@@ -6,7 +6,8 @@ Usage:
 """
 
 import csv
-from datetime import datetime, timedelta
+import numpy as np
+from datetime import datetime
 from collections import defaultdict
 
 
@@ -26,10 +27,18 @@ def analyze():
         return
 
     cat_counts = defaultdict(int)
+    cat_areas = defaultdict(list)
     timestamps = []
 
     for row in rows:
-        cat_counts[row['cat_name']] += 1
+        cat_name = row['cat_name']
+        cat_counts[cat_name] += 1
+
+        width = float(row['width'])
+        height = float(row['height'])
+        area = width * height
+        cat_areas[cat_name].append(area)
+
         timestamps.append(datetime.fromisoformat(row['timestamp']))
 
     total_positions = len(rows)
@@ -54,17 +63,25 @@ def analyze():
     for cat_name in sorted(cat_counts.keys()):
         count = cat_counts[cat_name]
         percentage = (count / total_positions) * 100
+        areas = np.array(cat_areas[cat_name])
+
         print(f"\n{cat_name}:")
         print(f"  Positions: {count}")
         print(f"  Percentage: {percentage:.1f}%")
         print(f"  Time visible: ~{count/12:.1f} minutes")
+        print(f"\n  Bbox statistics:")
+        print(f"    Avg area: {np.mean(areas):.0f} px²")
+        print(f"    Min area: {np.min(areas):.0f} px² (far/sitting)")
+        print(f"    Max area: {np.max(areas):.0f} px² (close/lying)")
 
     print("\n" + "=" * 60)
     print("NEXT STEPS")
     print("=" * 60)
     print("\nGenerate heatmaps:")
     for cat_name in sorted(cat_counts.keys()):
-        print(f"  python3 generate_heatmap.py --cat '{cat_name}' --hours 24")
+        print(f"\n  {cat_name}:")
+        print(f"    python3 generate_heatmap.py --cat '{cat_name}' --hours 24")
+        print(f"    python3 generate_heatmap.py --cat '{cat_name}' --hours 24 --weighted")
 
     print("\n" + "=" * 60)
 
