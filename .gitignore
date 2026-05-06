@@ -1,13 +1,42 @@
-demos/
-cat > .gitignore << 'EOF'
+# Model files
 *.pt
 *.onnx
+*.engine
 
+# Images and videos
 *.jpg
+*.jpeg
 *.png
+*.mp4
+*.avi
+demos/
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
 
+# Virtual environments
+venv/
+.venv/
+env/
 
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
 .DS_Store
-EOF
+Thumbs.db
+
+# Generated data
+occupancy_log.csv
+calibration.json
+cat_profiles.json
+zones_*.png

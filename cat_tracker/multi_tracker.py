@@ -71,6 +71,16 @@ class MultiTracker:
         # Return only confirmed tracks
         return [t for t in self.tracks if t.is_confirmed()]
     
+    def predict_only(self):
+        """Advance Kalman predictions without processing detections.
+
+        Used on frames where YOLO inference is skipped — tracks move forward
+        without being marked missed or matched against new detections.
+        """
+        for track in self.tracks:
+            track.predict()
+        return [t for t in self.tracks if t.is_confirmed()]
+
     def _match(self, detections):
         """
         Match detections to existing tracks using Hungarian algorithm.
