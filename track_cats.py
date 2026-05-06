@@ -9,6 +9,13 @@ from datetime import datetime
 import os
 import argparse
 import sys
+import threading
+
+try:
+    from flask import Flask, Response
+    FLASK_AVAILABLE = True
+except ImportError:
+    FLASK_AVAILABLE = False
 
 from cat_tracker.multi_tracker import MultiTracker
 from cat_tracker.prefix_colors import ColorHistogramExtractor, ColorHistogramIdentifier
@@ -216,6 +223,71 @@ class ServoController:
             return None, None
 
 
+class StreamServer:
+    """MJPEG stream server — push annotated frames from the tracking loop,
+    serve them to any browser at http://<pi-ip>:<port>/."""
+
+    _INDEX = """\
+<!doctype html>
+<html>
+<head>
+  <title>Cat Tracker</title>
+  <style>
+    body { margin: 0; background: #111; display: flex; flex-direction: column;
+           align-items: center; justify-content: center; height: 100vh; }
+    img  { max-width: 100%; max-height: 90vh; border: 2px solid #333; }
+    p    { color: #aaa; font: 14px monospace; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <img src="/stream">
+  <p>Cat Tracker &mdash; live MJPEG &mdash; Ctrl-C on Pi to stop</p>
+</body>
+</html>"""
+
+    def __init__(self, port=5000):
+        self.port = port
+        self._lock = threading.Lock()
+        self._frame_bytes = None
+
+        app = Flask(__name__)
+        import logging
+        logging.getLogger("werkzeug").setLevel(logging.ERROR)
+
+        app.add_url_rule("/", "index", self._index)
+        app.add_url_rule("/stream", "stream", self._stream_route)
+
+        t = threading.Thread(
+            target=lambda: app.run(host="0.0.0.0", port=port, threaded=True),
+            daemon=True,
+        )
+        t.start()
+        print(f"[STREAM] Live at http://0.0.0.0:{port}/  (open from your machine)")
+
+    def push(self, frame):
+        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+        if ok:
+            with self._lock:
+                self._frame_bytes = buf.tobytes()
+
+    def _generate(self):
+        while True:
+            with self._lock:
+                data = self._frame_bytes
+            if data is None:
+                time.sleep(0.05)
+                continue
+            yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + data + b"\r\n"
+            time.sleep(0.05)  # cap each consumer at ~20 fps
+
+    def _stream_route(self):
+        return Response(self._generate(),
+                        mimetype="multipart/x-mixed-replace; boundary=frame")
+
+    def _index(self):
+        return self._INDEX
+
+
 def draw_track(frame, track, model_w, model_h, debug=False, is_tentative=False, is_target=False):
     orig_h, orig_w = frame.shape[:2]
     x1, y1, x2, y2 = bbox_to_pixel_xyxy(
@@ -273,7 +345,7 @@ def stop_recording(writer, path, frames):
 
 
 def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False,
-         config_path=None):
+         config_path=None, stream=False, stream_port=5000):
     cfg = load_config(config_path)
 
     det_cfg = cfg['detection']
@@ -336,8 +408,19 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
     if recording:
         out, output_path = start_recording(fps, (640, 480))
 
+    stream_server = None
+    if stream:
+        if not FLASK_AVAILABLE:
+            print("[STREAM] flask not installed — run: pip install flask")
+            stream = False
+        else:
+            stream_server = StreamServer(port=stream_port)
+
     print("\nHotkeys:")
-    print("  [q] quit  |  [r] record on/off  |  [d] debug on/off")
+    if not stream:
+        print("  [q] quit  |  [r] record on/off  |  [d] debug on/off")
+    else:
+        print("  Ctrl-C to quit  (no local window in stream mode)")
     if servo_ctrl.enabled:
         print("  [s] servo mode  |  [c] center servos  |  [arrows] manual control")
         print("  [0-9] target specific cat (AUTO mode)")
@@ -346,8 +429,9 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
     fps_count = 0
     current_fps = 0.0
 
-    window_title = "Cat Tracking"
-    cv2.namedWindow(window_title, cv2.WINDOW_AUTOSIZE)
+    if not stream:
+        window_title = "Cat Tracking"
+        cv2.namedWindow(window_title, cv2.WINDOW_AUTOSIZE)
 
     try:
         while True:
@@ -452,51 +536,54 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
                 out.write(frame)
                 written_frames += 1
 
-            cv2.imshow(window_title, frame)
-            key = cv2.waitKey(1) & 0xFF
+            if stream:
+                stream_server.push(frame)
+            else:
+                cv2.imshow(window_title, frame)
+                key = cv2.waitKey(1) & 0xFF
 
-            if key == ord("q"):
-                break
+                if key == ord("q"):
+                    break
 
-            elif key == ord("d"):
-                debug = not debug
-                print(f"[DEBUG] {'ON' if debug else 'OFF'}")
+                elif key == ord("d"):
+                    debug = not debug
+                    print(f"[DEBUG] {'ON' if debug else 'OFF'}")
 
-            elif key == ord("r"):
-                recording = not recording
-                if recording:
-                    written_frames = 0
-                    out, output_path = start_recording(fps, (640, 480))
-                else:
-                    stop_recording(out, output_path, written_frames)
-                    out = None
-                    output_path = None
-
-            # Servo controls
-            elif key == ord("s"):
-                servo_ctrl.toggle_mode()
-            
-            elif key == ord("c"):
-                servo_ctrl.center()
-                print("[SERVO] Centered")
-            
-            elif key == 81 or key == ord('a'):
-                servo_ctrl.manual_pan_left()
-            elif key == 83 or key == ord('d'):
-                servo_ctrl.manual_pan_right()
-            elif key == 82 or key == ord('w'):
-                servo_ctrl.manual_tilt_up()
-            elif key == 84:
-                servo_ctrl.manual_tilt_down()
-            
-            elif ord('0') <= key <= ord('9'):
-                if servo_ctrl.mode == ServoController.MODE_AUTO:
-                    if key == ord('0'):
-                        target_track_id = None
-                        print("[SERVO] Tracking any cat")
+                elif key == ord("r"):
+                    recording = not recording
+                    if recording:
+                        written_frames = 0
+                        out, output_path = start_recording(fps, (640, 480))
                     else:
-                        target_track_id = int(chr(key))
-                        print(f"[SERVO] Targeting cat #{target_track_id}")
+                        stop_recording(out, output_path, written_frames)
+                        out = None
+                        output_path = None
+
+                # Servo controls
+                elif key == ord("s"):
+                    servo_ctrl.toggle_mode()
+
+                elif key == ord("c"):
+                    servo_ctrl.center()
+                    print("[SERVO] Centered")
+
+                elif key == 81 or key == ord('a'):
+                    servo_ctrl.manual_pan_left()
+                elif key == 83 or key == ord('d'):
+                    servo_ctrl.manual_pan_right()
+                elif key == 82 or key == ord('w'):
+                    servo_ctrl.manual_tilt_up()
+                elif key == 84:
+                    servo_ctrl.manual_tilt_down()
+
+                elif ord('0') <= key <= ord('9'):
+                    if servo_ctrl.mode == ServoController.MODE_AUTO:
+                        if key == ord('0'):
+                            target_track_id = None
+                            print("[SERVO] Tracking any cat")
+                        else:
+                            target_track_id = int(chr(key))
+                            print(f"[SERVO] Targeting cat #{target_track_id}")
 
     finally:
         if out is not None:
@@ -511,7 +598,8 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
             print("[SERVO] Centered and shutdown")
 
         picam2.stop()
-        cv2.destroyAllWindows()
+        if not stream:
+            cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
@@ -523,8 +611,12 @@ if __name__ == "__main__":
                         help="Log pixel positions to occupancy_log.csv")
     parser.add_argument("--no-servo", action="store_true", help="Disable servo control")
     parser.add_argument("--config", default=None, help="Path to config.yaml")
+    parser.add_argument("--stream", action="store_true",
+                        help="Serve MJPEG stream instead of opening a local window")
+    parser.add_argument("--stream-port", type=int, default=5000,
+                        help="Port for the MJPEG stream server (default: 5000)")
 
     args = parser.parse_args()
     main(debug=args.debug, record=args.record, fps=args.fps,
          log_positions=args.log_positions, no_servo=args.no_servo,
-         config_path=args.config)
+         config_path=args.config, stream=args.stream, stream_port=args.stream_port)
