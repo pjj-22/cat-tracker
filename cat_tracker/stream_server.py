@@ -105,6 +105,13 @@ _HTML_SCRIPT = """
     };
     function cmd(name, extra) { ws.send(JSON.stringify(Object.assign({cmd: name}, extra))); }
     function target(id) { cmd('target', {id}); }
+    const keyMap = {
+      ArrowLeft: 'pan_left', ArrowRight: 'pan_right',
+      ArrowUp:   'tilt_up',  ArrowDown:  'tilt_down',
+    };
+    document.addEventListener('keydown', e => {
+      if (keyMap[e.key]) { e.preventDefault(); cmd(keyMap[e.key]); }
+    });
   </script>"""
 
 _HTML_FOOT = """
