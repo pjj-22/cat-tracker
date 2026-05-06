@@ -40,6 +40,9 @@ _HTML_HEAD = """\
     #targets label { color: #666; }
     #targets button { padding: 4px 10px; }
     #targets button.active { border-color: #77c; color: #77c; }
+    #dpad { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    #dpad div { display: flex; gap: 4px; }
+    #dpad button { width: 44px; height: 44px; font-size: 18px; padding: 0; }
   </style>
 </head>
 <body>
@@ -56,6 +59,14 @@ _HTML_HEAD = """\
     <button id="btn-debug" onclick="cmd('toggle_debug')">Debug</button>
     <button                onclick="cmd('servo_mode')">Servo Mode</button>
     <button                onclick="cmd('center')">&#8982; Center</button>
+  </div>
+  <div id="dpad">
+    <div><button onclick="cmd('tilt_up')">▲</button></div>
+    <div>
+      <button onclick="cmd('pan_left')">◀</button>
+      <button onclick="cmd('pan_right')">▶</button>
+    </div>
+    <div><button onclick="cmd('tilt_down')">▼</button></div>
   </div>
   <div id="targets">
     <label>Target:</label>

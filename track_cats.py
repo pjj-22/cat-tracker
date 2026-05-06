@@ -65,7 +65,7 @@ def stop_recording(writer, path, frames):
 
 
 def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False,
-         config_path=None, stream=False, stream_port=5000):
+         config_path=None, stream=False, stream_port=5000, inference_every=1):
     cfg = load_config(config_path)
     det_cfg = cfg['detection']
     trk_cfg = cfg['tracking']
@@ -137,6 +137,7 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
     fps_start = time.time()
     fps_count = 0
     current_fps = 0.0
+    frame_count = 0
 
     if not stream:
         cv2.namedWindow("Cat Tracking", cv2.WINDOW_AUTOSIZE)
@@ -169,20 +170,35 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
             else:
                 target_track_id = cat_id
                 print(f"[SERVO] Targeting cat #{cat_id}")
+        elif action in ("pan_left", "pan_right", "tilt_up", "tilt_down"):
+            if servo_ctrl.mode != ServoController.MODE_MANUAL:
+                servo_ctrl.mode = ServoController.MODE_MANUAL
+                print("[SERVO] Mode: MANUAL")
+            if action == "pan_left":
+                servo_ctrl.manual_pan_left()
+            elif action == "pan_right":
+                servo_ctrl.manual_pan_right()
+            elif action == "tilt_up":
+                servo_ctrl.manual_tilt_up()
+            elif action == "tilt_down":
+                servo_ctrl.manual_tilt_down()
 
     try:
         while True:
             frame = picam2.capture_array()
+            frame_count += 1
 
-            input_data = preprocess_frame(frame, model_w, model_h)
-            outputs = session.run(None, {input_name: input_data})[0]
-            detections = parse_yolo_output(
-                outputs,
-                conf_threshold=det_cfg['confidence_threshold'],
-                iou_threshold=det_cfg['iou_threshold'],
-            )
-
-            confirmed_tracks = tracker.update(detections)
+            if frame_count % inference_every == 0:
+                input_data = preprocess_frame(frame, model_w, model_h)
+                outputs = session.run(None, {input_name: input_data})[0]
+                detections = parse_yolo_output(
+                    outputs,
+                    conf_threshold=det_cfg['confidence_threshold'],
+                    iou_threshold=det_cfg['iou_threshold'],
+                )
+                confirmed_tracks = tracker.update(detections)
+            else:
+                confirmed_tracks = tracker.predict_only()
 
             orig_h, orig_w = frame.shape[:2]
             for track in confirmed_tracks:
@@ -250,7 +266,7 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
             ]
             if servo_ctrl.enabled:
                 status_lines.append(f"Servo: {servo_ctrl.get_mode_name()}")
-                if pan is not None:
+                if debug and pan is not None:
                     status_lines.append(f"Pan: {pan:.0f}° Tilt: {tilt:.0f}°")
                 if target_track is not None:
                     status_lines.append(f"Target: Cat #{target_track.id}")
@@ -346,11 +362,14 @@ if __name__ == "__main__":
     parser.add_argument("--no-servo",     action="store_true", help="Disable servo control")
     parser.add_argument("--config",       default=None, help="Path to config.yaml")
     parser.add_argument("--stream",       action="store_true", help="Serve MJPEG stream to browser")
-    parser.add_argument("--stream-port",  type=int, default=5000, help="Stream server port (default: 5000)")
+    parser.add_argument("--stream-port",     type=int, default=5000, help="Stream server port (default: 5000)")
+    parser.add_argument("--inference-every", type=int, default=1,
+                        help="Run YOLO every N frames; Kalman predicts in between (default: 1)")
 
     args = parser.parse_args()
     main(
         debug=args.debug, record=args.record, fps=args.fps,
         log_positions=args.log_positions, no_servo=args.no_servo,
         config_path=args.config, stream=args.stream, stream_port=args.stream_port,
+        inference_every=args.inference_every,
     )
