@@ -4,6 +4,7 @@ Multi-cat tracking with Kalman filters and Hungarian algorithm.
 
 from picamera2 import Picamera2
 import cv2
+import numpy as np
 import time
 from datetime import datetime
 import os
@@ -24,17 +25,25 @@ from cat_tracker.servo import ServoController
 from cat_tracker.stream_server import StreamServer, FLASK_AVAILABLE
 
 
-def draw_track(frame, track, model_w, model_h, debug=False, is_tentative=False, is_target=False):
+def draw_track(frame, track, model_w, model_h, name_to_id, debug=False, is_tentative=False, is_target=False):
     orig_h, orig_w = frame.shape[:2]
     x1, y1, x2, y2 = bbox_to_pixel_xyxy(track.bbox, model_w, model_h, orig_w, orig_h)
-    color = TRACK_COLORS[(track.id - 1) % len(TRACK_COLORS)]
+
+    display_id = name_to_id.get(track.name)
 
     if is_tentative:
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (128, 128, 128), 1)
-        label = f"Track #{track.id} (tent)"
+        color = (128, 128, 128)
+        label = "? (tent)"
     else:
+        color = TRACK_COLORS[(display_id - 1) % len(TRACK_COLORS)] if display_id else (128, 128, 128)
+        if display_id:
+            label = f"{track.name} #{display_id}"
+        else:
+            label = "?"
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-        label = f"{track.name} #{track.id}" if track.name != "Unknown" else f"Cat #{track.id}"
+
+    if is_tentative:
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
 
     if debug:
         label += f" H:{track.hits} M:{track.missed_frames} C:{track.confidence:.2f}"
@@ -64,8 +73,8 @@ def stop_recording(writer, path, frames):
     print(f"[REC] Saved {frames} frames → {path}")
 
 
-def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False,
-         config_path=None, stream=False, stream_port=5000, inference_every=1):
+def main(debug=True, record=False, fps=None, log_positions=False, no_servo=False,
+         config_path=None, stream=False, stream_port=5000, inference_every=None):
     cfg = load_config(config_path)
     det_cfg = cfg['detection']
     trk_cfg = cfg['tracking']
@@ -74,18 +83,25 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
     srv_cfg = cfg['servo']
     log_cfg = cfg['logging']
 
+    inference_every = inference_every if inference_every is not None else trk_cfg.get('inference_every', 3)
+    fps = fps if fps is not None else cam_cfg['fps']
+    effective_max_missed = max(1, trk_cfg['max_missed'] // inference_every)
+
     print("Loading ONNX model...")
     session, input_name, model_h, model_w = load_yolo_model(det_cfg['model_path'])
+    px_per_deg_h = model_w / srv_cfg.get('camera_hfov', 66)
+    px_per_deg_v = model_h / srv_cfg.get('camera_vfov', 49)
 
     picam2 = Picamera2()
     picam2.configure(picam2.create_preview_configuration(
-        main={"size": (cam_cfg['width'], cam_cfg['height']), "format": "RGB888"}
+        main={"size": (cam_cfg['width'], cam_cfg['height']), "format": "RGB888"},
+        controls={"FrameRate": float(cam_cfg['fps'])},
     ))
     picam2.start()
     time.sleep(2)
 
     tracker = MultiTracker(
-        max_missed=trk_cfg['max_missed'],
+        max_missed=effective_max_missed,
         min_hits=trk_cfg['min_hits'],
         iou_threshold=trk_cfg['iou_threshold'],
     )
@@ -96,6 +112,8 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
     identifier = ColorHistogramIdentifier(
         profile_path=id_cfg['profile_path'], hsv_weights=id_cfg['hsv_weights'],
     )
+    cat_list = list(identifier.profiles.keys())
+    name_to_id = {name: i + 1 for i, name in enumerate(cat_list)}
     servo_ctrl = ServoController(
         pan_channel=srv_cfg['pan_channel'], tilt_channel=srv_cfg['tilt_channel'],
         enabled=srv_cfg['enabled'] and not no_servo,
@@ -112,10 +130,10 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
     output_path = None
     written_frames = 0
     recording = record
-    target_track_id = None
+    target_cat_name = None
 
     if recording:
-        out, output_path = start_recording(fps, (640, 480))
+        out, output_path = start_recording(fps, (cam_cfg['width'], cam_cfg['height']))
 
     stream_server = None
     if stream:
@@ -138,18 +156,19 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
     fps_count = 0
     current_fps = 0.0
     frame_count = 0
+    detections = []
 
     if not stream:
         cv2.namedWindow("Cat Tracking", cv2.WINDOW_AUTOSIZE)
 
     def handle_command(cmd_dict):
-        nonlocal debug, recording, written_frames, out, output_path, target_track_id
+        nonlocal debug, recording, written_frames, out, output_path, target_cat_name
         action = cmd_dict.get("cmd")
         if action == "toggle_record":
             recording = not recording
             if recording:
                 written_frames = 0
-                out, output_path = start_recording(fps, (640, 480))
+                out, output_path = start_recording(fps, (cam_cfg['width'], cam_cfg['height']))
             else:
                 stop_recording(out, output_path, written_frames)
                 out = None
@@ -163,25 +182,28 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
             servo_ctrl.center()
             print("[SERVO] Centered")
         elif action == "target":
-            cat_id = cmd_dict.get("id", 0)
-            if cat_id == 0:
-                target_track_id = None
+            name = cmd_dict.get("name")
+            if not name:
+                target_cat_name = None
                 print("[SERVO] Tracking any cat")
             else:
-                target_track_id = cat_id
-                print(f"[SERVO] Targeting cat #{cat_id}")
+                target_cat_name = name
+                print(f"[SERVO] Targeting {name}")
         elif action in ("pan_left", "pan_right", "tilt_up", "tilt_down"):
             if servo_ctrl.mode != ServoController.MODE_MANUAL:
                 servo_ctrl.mode = ServoController.MODE_MANUAL
                 print("[SERVO] Mode: MANUAL")
+            pan_d, tilt_d = 0.0, 0.0
             if action == "pan_left":
-                servo_ctrl.manual_pan_left()
+                pan_d = servo_ctrl.manual_pan_left()
             elif action == "pan_right":
-                servo_ctrl.manual_pan_right()
+                pan_d = servo_ctrl.manual_pan_right()
             elif action == "tilt_up":
-                servo_ctrl.manual_tilt_up()
+                tilt_d = servo_ctrl.manual_tilt_up()
             elif action == "tilt_down":
-                servo_ctrl.manual_tilt_down()
+                tilt_d = servo_ctrl.manual_tilt_down()
+            if pan_d or tilt_d:
+                tracker.compensate_camera_motion(pan_d * px_per_deg_h, tilt_d * px_per_deg_v)
 
     try:
         while True:
@@ -214,22 +236,28 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
             target_track = None
             if servo_ctrl.mode == ServoController.MODE_AUTO:
                 if confirmed_tracks:
-                    if target_track_id is not None:
+                    if target_cat_name:
                         target_track = next(
-                            (t for t in confirmed_tracks if t.id == target_track_id), None
+                            (t for t in confirmed_tracks if t.name == target_cat_name), None
                         ) or confirmed_tracks[0]
                     else:
                         target_track = confirmed_tracks[0]
-                    x_center = target_track.bbox[0] / model_w * orig_w
-                    y_center = target_track.bbox[1] / model_h * orig_h
-                    servo_ctrl.auto_follow(x_center, y_center, orig_w, orig_h)
+                    vx, vy = target_track.velocity
+                    look_ahead = trk_cfg.get('look_ahead', 2)
+                    x_pred = float(np.clip(target_track.bbox[0] + vx * look_ahead, 0, model_w))
+                    y_pred = float(np.clip(target_track.bbox[1] + vy * look_ahead, 0, model_h))
+                    x_center = x_pred / model_w * orig_w
+                    y_center = y_pred / model_h * orig_h
+                    pan_d, tilt_d = servo_ctrl.auto_follow(x_center, y_center, orig_w, orig_h)
+                    if pan_d or tilt_d:
+                        tracker.compensate_camera_motion(pan_d * px_per_deg_h, tilt_d * px_per_deg_v)
                 else:
                     servo_ctrl.patrol()
 
             if debug:
                 for track in tracker.tracks:
                     if not track.is_confirmed():
-                        draw_track(frame, track, model_w, model_h, debug, True)
+                        draw_track(frame, track, model_w, model_h, name_to_id, debug, True)
 
             for track in confirmed_tracks:
                 if pos_logger is not None:
@@ -240,7 +268,7 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
                     pos_logger.log(track.name, x_center, y_center, width, height)
                     log_count += 1
                 is_target = (target_track is not None and track.id == target_track.id)
-                draw_track(frame, track, model_w, model_h, debug, is_target=is_target)
+                draw_track(frame, track, model_w, model_h, name_to_id, debug, is_target=is_target)
 
             if debug:
                 for det in detections:
@@ -269,7 +297,7 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
                 if debug and pan is not None:
                     status_lines.append(f"Pan: {pan:.0f}° Tilt: {tilt:.0f}°")
                 if target_track is not None:
-                    status_lines.append(f"Target: Cat #{target_track.id}")
+                    status_lines.append(f"Target: {target_track.name}")
             if log_positions:
                 status_lines.append(f"LOG: {log_count}")
 
@@ -292,12 +320,14 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
                 stream_server.update_status({
                     "fps":        round(current_fps, 1),
                     "tracked":    len(confirmed_tracks),
+                    "cats":       cat_list,
+                    "active":     [t.name for t in confirmed_tracks if t.name != "Unknown"],
                     "recording":  recording,
                     "debug":      debug,
                     "servo_mode": servo_ctrl.get_mode_name(),
                     "pan":        round(pan, 1) if pan is not None else None,
                     "tilt":       round(tilt, 1) if tilt is not None else None,
-                    "target":     target_track_id or 0,
+                    "target":     target_cat_name or "",
                     "log":        log_count if log_positions else None,
                 })
             else:
@@ -313,7 +343,7 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
                     recording = not recording
                     if recording:
                         written_frames = 0
-                        out, output_path = start_recording(fps, (640, 480))
+                        out, output_path = start_recording(fps, (cam_cfg['width'], cam_cfg['height']))
                     else:
                         stop_recording(out, output_path, written_frames)
                         out = None
@@ -324,20 +354,28 @@ def main(debug=True, record=False, fps=20.0, log_positions=False, no_servo=False
                     servo_ctrl.center()
                     print("[SERVO] Centered")
                 elif key in (81, ord('a')):
-                    servo_ctrl.manual_pan_left()
+                    pan_d = servo_ctrl.manual_pan_left()
+                    if pan_d: tracker.compensate_camera_motion(pan_d * px_per_deg_h, 0)
                 elif key in (83, ord('d')):
-                    servo_ctrl.manual_pan_right()
+                    pan_d = servo_ctrl.manual_pan_right()
+                    if pan_d: tracker.compensate_camera_motion(pan_d * px_per_deg_h, 0)
                 elif key in (82, ord('w')):
-                    servo_ctrl.manual_tilt_up()
+                    tilt_d = servo_ctrl.manual_tilt_up()
+                    if tilt_d: tracker.compensate_camera_motion(0, tilt_d * px_per_deg_v)
                 elif key == 84:
-                    servo_ctrl.manual_tilt_down()
+                    tilt_d = servo_ctrl.manual_tilt_down()
+                    if tilt_d: tracker.compensate_camera_motion(0, tilt_d * px_per_deg_v)
                 elif ord('0') <= key <= ord('9') and servo_ctrl.mode == ServoController.MODE_AUTO:
                     if key == ord('0'):
-                        target_track_id = None
+                        target_cat_name = None
                         print("[SERVO] Tracking any cat")
                     else:
-                        target_track_id = int(chr(key))
-                        print(f"[SERVO] Targeting cat #{target_track_id}")
+                        idx = int(chr(key)) - 1
+                        if 0 <= idx < len(cat_list):
+                            target_cat_name = cat_list[idx]
+                            print(f"[SERVO] Targeting {target_cat_name}")
+                        else:
+                            print(f"[SERVO] No cat #{int(chr(key))} in config")
 
     finally:
         if out is not None:
@@ -357,14 +395,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Live multi-cat tracker")
     parser.add_argument("--debug",        action="store_true", help="Enable debug overlays")
     parser.add_argument("--record",       action="store_true", help="Start with recording enabled")
-    parser.add_argument("--fps",          type=float, default=20.0, help="Recording FPS")
+    parser.add_argument("--fps",          type=float, default=None, help="Override FPS (default: camera.fps from config)")
     parser.add_argument("--log-positions",action="store_true", help="Log pixel positions to occupancy_log.csv")
     parser.add_argument("--no-servo",     action="store_true", help="Disable servo control")
     parser.add_argument("--config",       default=None, help="Path to config.yaml")
     parser.add_argument("--stream",       action="store_true", help="Serve MJPEG stream to browser")
     parser.add_argument("--stream-port",     type=int, default=5000, help="Stream server port (default: 5000)")
-    parser.add_argument("--inference-every", type=int, default=1,
-                        help="Run YOLO every N frames; Kalman predicts in between (default: 1)")
+    parser.add_argument("--inference-every", type=int, default=None,
+                        help="Run YOLO every N frames; Kalman predicts in between (default: tracking.inference_every from config)")
 
     args = parser.parse_args()
     main(

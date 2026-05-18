@@ -26,6 +26,7 @@ class MultiTracker:
         self.max_missed = max_missed
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
+        self._next_id = 1
         
     def update(self, detections):
         """
@@ -61,16 +62,32 @@ class MultiTracker:
         for det_idx in unmatched_dets:
             new_track = Track(
                 detections[det_idx]['box'],
-                detections[det_idx]['confidence']
+                detections[det_idx]['confidence'],
+                track_id=self._alloc_id(),
+                min_hits=self.min_hits,
             )
             self.tracks.append(new_track)
-        
-        # Remove dead tracks
+
         self.tracks = [t for t in self.tracks if not t.should_delete(self.max_missed)]
         
         # Return only confirmed tracks
         return [t for t in self.tracks if t.is_confirmed()]
     
+    def compensate_camera_motion(self, dx, dy):
+        """Handle camera pan/tilt by freezing tracks until the next YOLO frame.
+
+        Shifting the Kalman state by an approximate pixel delta is unreliable,
+        so instead we zero velocity and inflate position uncertainty.  The next
+        YOLO detection will fully correct position (Kalman gain ≈ 1 when P >> R).
+        """
+        for track in self.tracks:
+            if not track.is_confirmed():
+                continue
+            track.kf.kf.x[4] = 0.0  # apparent velocity is unknown after pan
+            track.kf.kf.x[5] = 0.0
+            track.kf.kf.P[0, 0] += 5000.0
+            track.kf.kf.P[1, 1] += 5000.0
+
     def predict_only(self):
         """Advance Kalman predictions without processing detections.
 
@@ -80,6 +97,11 @@ class MultiTracker:
         for track in self.tracks:
             track.predict()
         return [t for t in self.tracks if t.is_confirmed()]
+
+    def _alloc_id(self):
+        id = self._next_id
+        self._next_id += 1
+        return id
 
     def _match(self, detections):
         """

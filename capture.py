@@ -30,7 +30,6 @@ import json
 import argparse
 from datetime import datetime
 from cat_tracker.multi_tracker import MultiTracker
-from cat_tracker.tracker import Track
 from cat_tracker.utils import bbox_to_pixel_xyxy
 from cat_tracker.detection import load_yolo_model, parse_yolo_output, preprocess_frame, TRACK_COLORS
 
@@ -60,7 +59,6 @@ def main(duration=None):
     picam2.start()
     time.sleep(2)
 
-    Track._next_id = 1
     tracker = MultiTracker(max_missed=30, min_hits=3, iou_threshold=0.3)
 
     track_frame_counts = {}

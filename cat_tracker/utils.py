@@ -34,6 +34,8 @@ def bbox_to_pixel_xyxy(bbox, model_w, model_h, frame_w, frame_h):
     w = w / model_w * frame_w
     h = h / model_h * frame_h
 
+    w = abs(w)
+    h = abs(h)
     x1 = int(x_center - w/2)
     y1 = int(y_center - h/2)
     x2 = int(x_center + w/2)

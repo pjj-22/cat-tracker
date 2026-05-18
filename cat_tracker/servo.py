@@ -1,9 +1,5 @@
-import os
-import sys
-
 try:
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "example", "Jetson"))
-    from ServoKit import ServoKit
+    import adafruit_servokit
     SERVO_AVAILABLE = True
 except Exception:
     SERVO_AVAILABLE = False
@@ -28,7 +24,7 @@ class ServoController:
             return
 
         try:
-            self.servo = ServoKit(num_ports=max(pan_channel, tilt_channel) + 1)
+            self._kit = adafruit_servokit.ServoKit(channels=16)
             self.pan_ch = pan_channel
             self.tilt_ch = tilt_channel
 
@@ -57,12 +53,18 @@ class ServoController:
             self.enabled = False
             self.mode = self.MODE_OFF
 
+    def _set(self, ch, angle):
+        self._kit.servo[ch].angle = float(angle)
+
+    def _get(self, ch):
+        return self._kit.servo[ch].angle
+
     def center(self):
         if not self.enabled:
             return
         try:
-            self.servo.setAngle(self.pan_ch, self.pan_center)
-            self.servo.setAngle(self.tilt_ch, self.tilt_center)
+            self._set(self.pan_ch, self.pan_center)
+            self._set(self.tilt_ch, self.tilt_center)
             self.patrol_pan = float(self.pan_center)
         except Exception as e:
             print(f"[SERVO] Error centering: {e}")
@@ -81,60 +83,79 @@ class ServoController:
         return ["OFF", "MANUAL", "AUTO"][self.mode]
 
     def manual_pan_left(self):
+        """Returns actual pan delta in degrees (negative = moved left)."""
         if not self.enabled or self.mode != self.MODE_MANUAL:
-            return
+            return 0.0
         try:
-            current = self.servo.getAngle(self.pan_ch)
-            self.servo.setAngle(self.pan_ch, max(self.pan_min, current - self.manual_step))
+            current = self._get(self.pan_ch) or self.pan_center
+            new = max(self.pan_min, current - self.manual_step)
+            self._set(self.pan_ch, new)
+            return new - current
         except Exception as e:
             print(f"[SERVO] Error: {e}")
+            return 0.0
 
     def manual_pan_right(self):
+        """Returns actual pan delta in degrees (positive = moved right)."""
         if not self.enabled or self.mode != self.MODE_MANUAL:
-            return
+            return 0.0
         try:
-            current = self.servo.getAngle(self.pan_ch)
-            self.servo.setAngle(self.pan_ch, min(self.pan_max, current + self.manual_step))
+            current = self._get(self.pan_ch) or self.pan_center
+            new = min(self.pan_max, current + self.manual_step)
+            self._set(self.pan_ch, new)
+            return new - current
         except Exception as e:
             print(f"[SERVO] Error: {e}")
+            return 0.0
 
     def manual_tilt_up(self):
+        """Returns actual tilt delta in degrees (positive = moved up)."""
         if not self.enabled or self.mode != self.MODE_MANUAL:
-            return
+            return 0.0
         try:
-            current = self.servo.getAngle(self.tilt_ch)
-            self.servo.setAngle(self.tilt_ch, min(self.tilt_max, current + self.manual_step))
+            current = self._get(self.tilt_ch) or self.tilt_center
+            new = min(self.tilt_max, current + self.manual_step)
+            self._set(self.tilt_ch, new)
+            return new - current
         except Exception as e:
             print(f"[SERVO] Error: {e}")
+            return 0.0
 
     def manual_tilt_down(self):
+        """Returns actual tilt delta in degrees (negative = moved down)."""
         if not self.enabled or self.mode != self.MODE_MANUAL:
-            return
+            return 0.0
         try:
-            current = self.servo.getAngle(self.tilt_ch)
-            self.servo.setAngle(self.tilt_ch, max(self.tilt_min, current - self.manual_step))
+            current = self._get(self.tilt_ch) or self.tilt_center
+            new = max(self.tilt_min, current - self.manual_step)
+            self._set(self.tilt_ch, new)
+            return new - current
         except Exception as e:
             print(f"[SERVO] Error: {e}")
+            return 0.0
 
     def auto_follow(self, bbox_center_x, bbox_center_y, frame_w, frame_h):
+        """Follow a target. Returns (pan_delta_deg, tilt_delta_deg) actually moved."""
         if not self.enabled or self.mode != self.MODE_AUTO:
-            return
+            return 0.0, 0.0
         try:
             error_x = bbox_center_x - frame_w / 2
             error_y = bbox_center_y - frame_h / 2
             if abs(error_x) < self.deadzone and abs(error_y) < self.deadzone:
-                return
+                return 0.0, 0.0
             pan_adjust = (error_x / frame_w) * self.max_step
             tilt_adjust = -(error_y / frame_h) * self.max_step
-            current_pan = self.servo.getAngle(self.pan_ch)
-            current_tilt = self.servo.getAngle(self.tilt_ch)
+            current_pan = self._get(self.pan_ch) or self.pan_center
+            current_tilt = self._get(self.tilt_ch) or self.tilt_center
             new_pan = max(self.pan_min, min(self.pan_max, current_pan + pan_adjust))
             new_tilt = max(self.tilt_min, min(self.tilt_max, current_tilt + tilt_adjust))
-            self.servo.setAngle(self.pan_ch, new_pan)
-            self.servo.setAngle(self.tilt_ch, new_tilt)
+            self._set(self.pan_ch, new_pan)
+            self._set(self.tilt_ch, new_tilt)
             self.patrol_pan = new_pan
+            return new_pan - current_pan, new_tilt - current_tilt
         except Exception as e:
             print(f"[SERVO] Auto-follow error: {e}")
+            return 0.0, 0.0
 
     def patrol(self):
         if not self.enabled or self.mode != self.MODE_AUTO:
@@ -146,7 +167,10 @@ class ServoController:
                 self.patrol_direction = 1
             self.patrol_pan += self.patrol_step * self.patrol_direction
             self.patrol_pan = max(self.pan_min, min(self.pan_max, self.patrol_pan))
-            self.servo.setAngle(self.pan_ch, self.patrol_pan)
+            self._set(self.pan_ch, self.patrol_pan)
+            current_tilt = self._get(self.tilt_ch) or self.tilt_center
+            if abs(current_tilt - self.tilt_center) > 0.5:
+                self._set(self.tilt_ch, current_tilt + (self.tilt_center - current_tilt) * 0.15)
         except Exception as e:
             print(f"[SERVO] Patrol error: {e}")
 
@@ -154,6 +178,6 @@ class ServoController:
         if not self.enabled:
             return None, None
         try:
-            return self.servo.getAngle(self.pan_ch), self.servo.getAngle(self.tilt_ch)
+            return self._get(self.pan_ch), self._get(self.tilt_ch)
         except Exception:
             return None, None

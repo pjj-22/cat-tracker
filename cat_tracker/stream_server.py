@@ -70,12 +70,7 @@ _HTML_HEAD = """\
   </div>
   <div id="targets">
     <label>Target:</label>
-    <button class="active" data-id="0" onclick="target(0)">Any</button>
-    <button data-id="1" onclick="target(1)">#1</button>
-    <button data-id="2" onclick="target(2)">#2</button>
-    <button data-id="3" onclick="target(3)">#3</button>
-    <button data-id="4" onclick="target(4)">#4</button>
-    <button data-id="5" onclick="target(5)">#5</button>
+    <button class="active" data-name="" onclick="target('')">Any</button>
   </div>"""
 
 _HTML_SCRIPT = """
@@ -97,14 +92,26 @@ _HTML_SCRIPT = """
         ang.textContent = 'Pan ' + s.pan + '° / Tilt ' + s.tilt + '°';
         ang.style.display = '';
       } else { ang.style.display = 'none'; }
-      if (s.target !== activeTarget) {
-        activeTarget = s.target ?? 0;
-        document.querySelectorAll('#targets button').forEach(b =>
-          b.classList.toggle('active', +b.dataset.id === activeTarget));
+      const cats = s.cats || [];
+      const targetsEl = document.getElementById('targets');
+      const currentNames = Array.from(targetsEl.querySelectorAll('button[data-name]'))
+        .map(b => b.dataset.name).filter(n => n !== '');
+      if (JSON.stringify(cats) !== JSON.stringify(currentNames)) {
+        targetsEl.querySelectorAll('button[data-name]:not([data-name=""])').forEach(b => b.remove());
+        cats.forEach((name, i) => {
+          const b = document.createElement('button');
+          b.dataset.name = name;
+          b.onclick = () => target(name);
+          b.textContent = `#${i + 1} ${name}`;
+          targetsEl.appendChild(b);
+        });
       }
+      activeTarget = s.target ?? '';
+      targetsEl.querySelectorAll('button[data-name]').forEach(b =>
+        b.classList.toggle('active', b.dataset.name === activeTarget));
     };
     function cmd(name, extra) { ws.send(JSON.stringify(Object.assign({cmd: name}, extra))); }
-    function target(id) { cmd('target', {id}); }
+    function target(name) { cmd('target', {name}); }
     const keyMap = {
       ArrowLeft: 'pan_left', ArrowRight: 'pan_right',
       ArrowUp:   'tilt_up',  ArrowDown:  'tilt_down',

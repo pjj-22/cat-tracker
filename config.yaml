@@ -4,7 +4,7 @@
 camera:
   width: 640
   height: 480
-  fps: 20.0
+  fps: 15.0
 
 servo:
   enabled: true
@@ -19,6 +19,8 @@ servo:
   deadzone: 50
   max_step: 5
   patrol_step: 0.6
+  camera_hfov: 66
+  camera_vfov: 49
 
 detection:
   model_path: "yolo11s.onnx"
@@ -26,9 +28,11 @@ detection:
   iou_threshold: 0.4
 
 tracking:
-  max_missed: 15
+  max_missed: 45
   min_hits: 3
   iou_threshold: 0.3
+  look_ahead: 2
+  inference_every: 3
 
 identification:
   profile_path: "cat_profiles.json"

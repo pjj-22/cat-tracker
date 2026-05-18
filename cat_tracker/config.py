@@ -13,7 +13,7 @@ DEFAULTS = {
     'camera': {
         'width': 640,
         'height': 480,
-        'fps': 20.0,
+        'fps': 15.0,
     },
     'servo': {
         'enabled': True,
@@ -28,6 +28,8 @@ DEFAULTS = {
         'deadzone': 50,
         'max_step': 5,
         'patrol_step': 0.6,
+        'camera_hfov': 66,
+        'camera_vfov': 49,
     },
     'detection': {
         'model_path': 'yolo11s.onnx',
@@ -35,9 +37,11 @@ DEFAULTS = {
         'iou_threshold': 0.4,
     },
     'tracking': {
-        'max_missed': 15,
+        'max_missed': 45,
         'min_hits': 3,
         'iou_threshold': 0.3,
+        'look_ahead': 2,
+        'inference_every': 3,
     },
     'identification': {
         'profile_path': 'cat_profiles.json',
@@ -65,20 +69,21 @@ def _deep_merge(base, override):
     return merged
 
 
+_DEFAULT_YAML = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config.yaml'))
+
+
 def load_config(path=None):
     """
     Load configuration from a YAML file, merged over built-in defaults.
 
-    Args:
-        path: Path to a YAML config file. If *None* or the file does not
-              exist, only built-in defaults are returned.
-
-    Returns:
-        dict with all configuration sections populated.
+    Looks for config.yaml in the project root automatically if no path given.
     """
-    if path and os.path.exists(path):
-        with open(path, 'r') as f:
+    resolved = path or _DEFAULT_YAML
+    if resolved and os.path.exists(resolved):
+        print(f"[CONFIG] Loaded from {resolved}")
+        with open(resolved, 'r') as f:
             user_cfg = yaml.safe_load(f) or {}
         return _deep_merge(DEFAULTS, user_cfg)
 
+    print(f"[CONFIG] No config file found at {resolved}, using defaults")
     return DEFAULTS.copy()
