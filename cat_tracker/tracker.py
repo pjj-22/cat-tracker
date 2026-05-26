@@ -20,9 +20,9 @@ class Track:
         self.predicted_bbox = bbox
         self.confidence = confidence
 
-        self.hits = 1  # Number of times this track was matched
-        self.missed_frames = 0  # Consecutive frames without detection
-        self.age = 0  # Total frames this track has existed
+        self.hits = 1             # number of times this track was matched
+        self.missed_frames = 0    # consecutive frames without a detection
+        self.age = 0              # total frames this track has existed
         self.frames_since_identified = 0
         self.name = "Unknown"
         self.name_confidence = 0.0
@@ -33,11 +33,11 @@ class Track:
         self.bbox = self.predicted_bbox
         self.age += 1
         return self.predicted_bbox
-    
+
     def update(self, bbox, confidence):
         """
         Update track with new detection.
-        
+
         Args:
             bbox: New detected bounding box
             confidence: Detection confidence
@@ -48,16 +48,16 @@ class Track:
         self.hits += 1
         self.missed_frames = 0
         self.frames_since_identified += 1
-    
+
     def mark_missed(self):
         self.missed_frames += 1
-        self.kf.kf.x[6] = 0.0  # freeze box size — no detection to correct drift
+        self.kf.kf.x[6] = 0.0  # freeze box size, no detection to correct drift
         self.kf.kf.x[7] = 0.0
         self.bbox = self.predicted_bbox
-    
+
     def is_confirmed(self):
         return self.hits >= self._min_hits
-    
+
     @property
     def velocity(self):
         """Current velocity estimate [vx, vy] in model-space pixels/frame."""

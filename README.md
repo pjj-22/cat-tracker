@@ -6,7 +6,7 @@ I built this because I have two cats and wanted to know what they do when I'm no
 
 ## What It Actually Does
 
-1. **Detects cats** using YOLOv8 running on ONNX (15-19 FPS on a Pi 5)
+1. **Detects cats** using YOLO11s running on ONNX (~6 FPS inference, ~18 FPS effective with frame skipping)
 2. **Tracks them** across frames using Kalman filters so they don't lose their identity when they walk behind furniture
 3. **Identifies which cat** is which using HSV color histograms of their fur
 4. **Follows them** with servo-controlled pan/tilt if you have the hardware
@@ -19,7 +19,7 @@ I built this because I have two cats and wanted to know what they do when I'm no
 - Pi Camera (I use Arducam IMX708, but any Pi-compatible camera works)
 
 **Optional but fun:**
-- [Arducam Pan Tilt Platform](https://www.arducam.com/arducam-pan-tilt-platform-for-raspberry-pi-camera-2-dof-bracket-kit-with-digital-servos-and-ptz-control-broad-b0283.html) — 2-DOF bracket kit with digital servos and PTZ control board ([manual](https://blog.arducam.com/downloads/arducam-pan-tilt-kit-manual.pdf))
+- [Arducam Pan Tilt Platform](https://www.arducam.com/arducam-pan-tilt-platform-for-raspberry-pi-camera-2-dof-bracket-kit-with-digital-servos-and-ptz-control-broad-b0283.html), 2-DOF bracket kit with digital servos and PTZ control board ([manual](https://blog.arducam.com/downloads/arducam-pan-tilt-kit-manual.pdf))
 - PCA9685 servo controller (Adafruit or clone)
 
 ## Quick Start
@@ -32,8 +32,8 @@ sudo apt install -y python3-picamera2 python3-opencv ffmpeg
 # Python packages
 pip3 install --break-system-packages numpy==1.24.2 onnxruntime opencv-python ultralytics onnx filterpy scipy
 
-# Get the YOLO model (I found yolo11s is a good balance of speed/accuracy)
-python3 -c "from ultralytics import YOLO; YOLO('yolo11s.pt').export(format='onnx', imgsz=640)"
+# Get the YOLO model (imgsz=320 is critical, 640 is 4x slower on Pi)
+python3 -c "from ultralytics import YOLO; YOLO('yolo11s.pt').export(format='onnx', imgsz=320)"
 
 # Run the tracker
 python3 track_cats.py --debug
@@ -49,12 +49,14 @@ capture.py  →  label.py  →  build_profiles.py  →  track_cats.py
 
 The first three steps are one-time setup per cat. After that you just run `track_cats.py`.
 
-### Step 1 — Capture (`capture.py`)
+### Step 1: Capture (`capture.py`)
 
 Runs YOLO on the live camera and saves cropped images of every detected cat, organized by track.
 
 ```bash
-python3 capture.py --duration 300   # 5 minutes
+python3 capture.py              # run until you press q
+python3 capture.py --no-display # headless over SSH, stop with Ctrl-C
+python3 capture.py --duration 300  # auto-stop after 5 minutes
 ```
 
 - Loads `yolo11s.onnx`, opens the Pi camera at 640×480
@@ -75,9 +77,50 @@ captures/
         └── ...
 ```
 
-Track numbers reset to 1 each session. **Run multiple sessions** — different times of day and rooms matters because lighting changes how HSV looks.
+Track numbers reset to 1 each session. **Run multiple sessions** since different times of day and rooms matter. Lighting changes how HSV looks.
 
-### Step 2 — Label (`label.py`)
+#### Labeling remotely
+
+`label.py` needs a display. If you're SSH'd in headlessly, label on your local machine instead:
+
+```bash
+./scripts/fetch_captures.sh                          # pull crops from Pi → local captures/
+python3 label.py captures/session_YYYYMMDD_HHMMSS/  # label locally
+./scripts/push_labels.sh                             # push labels.json back to Pi
+```
+
+> **Note: `scripts/`**
+>
+> Everything in `scripts/` is a utility you run occasionally, not part of the main pipeline. The shell scripts sync data over SSH; the Python scripts are hardware tests and analysis tools.
+>
+> **SSH sync scripts** (default to `patrickjamesdev@10.0.0.209`, override with `PI_HOST`):
+>
+> ```bash
+> export PI_HOST="pi@192.168.1.42"   # add to ~/.bashrc to make permanent
+> ./scripts/fetch_captures.sh
+> ```
+>
+> | Script | Direction | What it syncs |
+> |--------|-----------|---------------|
+> | `fetch_captures.sh` | Pi → local | `captures/` (images for labeling) |
+> | `push_labels.sh` | local → Pi | `captures/**/labels.json` only |
+> | `fetch_recordings.sh` | Pi → local | `recordings/` (auto-record clips) |
+>
+> Requires `rsync` and SSH key-based auth. Run `ssh-copy-id $PI_HOST` once if you haven't already.
+>
+> **Python utilities** (run on the Pi, or locally for the analysis scripts):
+>
+> | Script | When to use |
+> |--------|-------------|
+> | `camera_test.py` | Verify the camera works, saves a still to `cat_test.jpg` |
+> | `calibrate_camera.py` | One-time floor homography setup for position logging |
+> | `servo_camera_test.py` | Manual servo + live feed test before running the tracker |
+> | `test_profiles.py` | Check identification accuracy against labeled sessions |
+> | `generate_heatmap.py` | Generate a heatmap PNG from `occupancy_log.csv` |
+> | `analyze_zones.py` | Zone occupancy breakdown from `occupancy_log.csv` |
+> | `visualize_profiles.py` | Plot the HSV histogram profiles for each cat |
+
+### Step 2: Label (`label.py`)
 
 Opens each saved crop as a fullscreen image. You press a number key to assign it to a cat.
 
@@ -93,7 +136,7 @@ python3 label.py captures/session_YYYYMMDD_HHMMSS/
 | `n` | Jump to next track |
 | `q` | Save and quit |
 
-Cat names are set the first time you press a number key. You can resume a session — existing labels are reloaded automatically.
+Cat names are set the first time you press a number key. You can resume a session; existing labels are reloaded automatically.
 
 **Output:** `captures/session_.../labels.json`
 
@@ -107,7 +150,7 @@ Cat names are set the first time you press a number key. You can resume a sessio
 }
 ```
 
-### Step 3 — Build Profiles (`build_profiles.py`)
+### Step 3: Build Profiles (`build_profiles.py`)
 
 Reads labeled sessions, extracts HSV histograms from each image, and averages them into a profile per cat.
 
@@ -125,15 +168,15 @@ python3 build_profiles.py captures/session_*/
    - Value: 32 bins (0–255)
 4. Merges into the cat's running average: `(old * n + new) / (n + 1)`
 
-Source paths are tracked so re-running the script on the same sessions is safe — duplicates are skipped.
+Source paths are tracked so re-running the script on the same sessions is safe; duplicates are skipped.
 
 **Profile separation** is printed at the end (Bhattacharyya distance on hue histograms):
 
 | Distance | Meaning |
 |----------|---------|
-| < 0.2 | Too similar — will confuse frequently |
-| 0.2–0.35 | Moderate — occasional confusion |
-| > 0.35 | Well separated — good |
+| < 0.2 | Too similar, will confuse frequently |
+| 0.2–0.35 | Moderate, occasional confusion |
+| > 0.35 | Well separated, reliable |
 
 **Output:** `cat_profiles.json` in the project root
 
@@ -246,18 +289,20 @@ python3 analyze_zones.py --hours 24
 
 ### Detection
 
-YOLO11 runs on ONNX runtime, which is way faster than PyTorch on ARM. I started with PyTorch and got 3 FPS. ONNX gives around 9 FPS on the same hardware. The model detects COCO class 15 (cat) with a confidence threshold of 0.15 — lower than typical because I'd rather have false positives that get filtered by tracking than miss a cat.
+YOLO11s runs on ONNX runtime, which is way faster than PyTorch on ARM. I started with PyTorch and got 3 FPS. ONNX gets to ~6 FPS raw inference; with `--inference-every 3` the effective tracking rate is ~18 FPS since Kalman handles the in-between frames (though two thirds of those frames aren't actually being detected, just predicted). The model detects COCO class 15 (cat) with a confidence threshold of 0.15, lower than typical because I'd rather have false positives that get filtered by tracking than miss a cat.
 
 ### Tracking
 
-Each detected cat gets a Kalman filter with an 8-dimensional state vector `[x, y, w, h, vx, vy, vw, vh]` — position, size, and their velocities. Per frame:
+Each detected cat gets a Kalman filter with an 8-dimensional state vector `[x, y, w, h, vx, vy, vw, vh]` (position, size, and their velocities). Per frame:
 
 1. Predict where each existing track should be (Kalman forward step)
 2. Match predictions to new detections via the Hungarian algorithm (minimizes total IoU cost)
 3. Update matched tracks, create new ones for unmatched detections
 4. Delete tracks missing for `max_missed` frames (default 15)
 
-With `--inference-every 3`, YOLO only runs every 3rd frame. Kalman predicts forward on the other frames — this roughly triples FPS with minimal accuracy loss.
+With `--inference-every 3`, YOLO only runs every 3rd frame. Kalman predicts forward on the other frames, which roughly triples FPS with minimal accuracy loss.
+
+One thing I've noticed: the Kalman filter assumes constant velocity between updates, which holds up fine for slow movement but starts drifting when a cat changes direction quickly. With 2 unobserved frames between corrections, the predicted position can be far enough off that the Hungarian matching occasionally associates the wrong detection to a track, particularly when both cats are close together. It works well enough in practice but it's not invisible.
 
 ### Identification
 
@@ -276,11 +321,11 @@ Hue gets 70% of the weight because it's most stable under lighting changes. Valu
 
 ### Servo Control
 
-Auto-follow uses proportional control — error between cat center and frame center drives a pan/tilt adjustment, capped at 5°/frame with a 50px deadzone to prevent jitter. When no cats are visible, patrol mode sweeps at 0.6°/frame looking for them.
+Auto-follow uses proportional control; the error between cat center and frame center drives a pan/tilt adjustment, capped at 5 degrees/frame with a 50px deadzone to prevent jitter. When no cats are visible, patrol mode sweeps at 0.6°/frame looking for them.
 
 ## Configuration (`config.yaml`)
 
-All tunable values in one place — edit this rather than touching source files.
+All tunable values in one place; edit this rather than touching source files.
 
 ```yaml
 camera:
@@ -289,7 +334,7 @@ camera:
 
 detection:
   model_path: "yolo11s.onnx"
-  confidence_threshold: 0.15   # low on purpose — tracking filters false positives
+  confidence_threshold: 0.15   # low on purpose, tracking filters false positives
   iou_threshold: 0.4
 
 tracking:
@@ -306,7 +351,7 @@ servo:
   enabled: true
   pan_channel: 0
   tilt_channel: 1
-  pan_center: 60    # mount-specific — "straight ahead" for this hardware
+  pan_center: 60    # mount-specific, "straight ahead" for this hardware
   tilt_center: 90
 ```
 
@@ -315,13 +360,13 @@ servo:
 ```
 cat-tracker/
 │
-├── track_cats.py              main loop — live tracking
+├── track_cats.py              main loop, live tracking
 ├── capture.py                 step 1: collect training images
 ├── label.py                   step 2: assign cats to images
 ├── build_profiles.py          step 3: build cat_profiles.json
 │
 ├── config.yaml                all tunable config
-├── cat_profiles.json          generated — trained HSV profiles
+├── cat_profiles.json          generated (trained HSV profiles)
 ├── yolo11s.onnx               YOLO model (not in git, must export)
 │
 ├── cat_tracker/
@@ -336,12 +381,19 @@ cat-tracker/
 │   ├── config.py              config.yaml loader + defaults
 │   └── utils.py               bbox math, IoU, coordinate helpers
 │
-├── camera_test.py             camera sanity check
-├── servo_camera_test.py       servo testing utility
-├── calibrate_camera.py        floor coordinate calibration
-├── generate_heatmap.py        heatmap generation
-├── analyze_zones.py           zone occupancy analysis
-├── visualize_profiles.py      color profile visualization
+├── scripts/
+│   ├── fetch_captures.sh      Pi → local: pull captures/ for labeling
+│   ├── push_labels.sh         local → Pi: push labels.json back
+│   ├── fetch_recordings.sh    Pi → local: pull recordings/ clips
+│   │
+│   ├── camera_test.py         sanity check, captures a still from the Pi camera
+│   ├── calibrate_camera.py    floor homography calibration (run once)
+│   ├── servo_camera_test.py   manual servo + camera test with live feed
+│   │
+│   ├── generate_heatmap.py    heatmap from occupancy_log.csv
+│   ├── analyze_zones.py       zone occupancy stats from occupancy_log.csv
+│   ├── visualize_profiles.py  plot HSV histogram profiles per cat
+│   └── test_profiles.py       run identification against labeled sessions, report accuracy
 │
 └── captures/                  generated during capture sessions
     └── session_YYYYMMDD_HHMMSS/
@@ -354,7 +406,7 @@ cat-tracker/
 ## Why These Choices?
 
 **YOLO11s instead of 11n or 11m?**
-11n (nano) is faster (~12 FPS) but misses cats at distance. 11m (medium) is more accurate but drops to ~5 FPS. I found 11s hits a sweet spot (~9 FPS) for real-time tracking on Pi 5.
+11n (nano) is faster but misses cats at distance. 11m (medium) is more accurate but the inference rate drops too low to be useful. 11s is the sweet spot, around 6 FPS raw and 18 FPS effective with frame skipping.
 
 **Kalman filter instead of just IoU matching?**
 Pure IoU matching fails when cats move fast or when there are brief occlusions. Kalman prediction bridges these gaps. Plus it smooths out detection jitter.
@@ -374,10 +426,10 @@ Cats are sneaky. If the camera is pointed at the couch and they walk in through 
 You haven't trained profiles yet. Run the capture → label → build pipeline.
 
 **Wrong cat identified**
-- Check profile separation — `build_profiles.py` prints Bhattacharyya distance between each pair. Under 0.35 means trouble.
+- Check profile separation; `build_profiles.py` prints Bhattacharyya distance between each pair. Under 0.35 means trouble.
 - Capture more sessions in different lighting and rooms. Lighting shifts HSV significantly.
 - In `label.py`, delete (`d`) blurry images and any crop where both cats overlap.
-- If you have a near-white or grey cat, lower `min_saturation` to 10 in `config.yaml` — the default mask of 20 may be discarding too many valid pixels.
+- If you have a near-white or grey cat, lower `min_saturation` to 10 in `config.yaml`; the default mask of 20 may be discarding too many valid pixels.
 
 **Track keeps switching identity**
 The tracker is probably losing the track during occlusions and creating a new one. Raise `max_missed` from 15 to 30–50 in `config.yaml`.
@@ -390,7 +442,7 @@ The tracker is probably losing the track during occlusions and creating a new on
 **Servo jitters**
 - Increase `deadzone` in `config.yaml`
 - Lower `max_step` for smoother movement
-- Check your power supply — servos can draw significant current
+- Check your power supply; servos can draw significant current
 
 ## What's Next?
 
@@ -399,6 +451,7 @@ Things I'm considering:
 - Multi-camera support for whole-house coverage
 - Web dashboard for remote monitoring
 - Push notifications when specific events happen
+- Rewriting the core pipeline in C++ to see whether dropping Python overhead entirely would give meaningful gains on the Pi, or whether ONNX already soaks up most of the available performance
 
 But honestly, knowing where my cats nap is already more than I expected to learn.
 

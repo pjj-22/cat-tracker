@@ -13,6 +13,37 @@ import os
 from cat_tracker.utils import clamp_bbox_to_image
 
 
+# WHY HSV INSTEAD OF RGB
+#
+# RGB mixes color and brightness together. An orange cat in bright light and
+# the same cat in shadow have very different RGB values but similar Hue values.
+# HSV separates them:
+#   H (Hue)        0-180 in OpenCV. The actual color: orange, grey, black, etc.
+#   S (Saturation) 0-255. How vivid the color is. A grey cat has low saturation.
+#   V (Value)      0-255. Brightness. Same cat, dim room vs bright room.
+#
+# We weight hue at 70%, saturation at 20%, value at 10% in the distance formula.
+# Hue is the most stable across lighting changes. Value shifts the most.
+
+# BHATTACHARYYA DISTANCE
+#
+# Given two normalized histograms p and q (same length, sum to 1):
+#
+#   Bhattacharyya coefficient BC = sum(sqrt(p[i] * q[i]))
+#
+# BC is 1 if the distributions are identical, 0 if they share no bins.
+# We convert to a distance: d = sqrt(1 - BC), so 0 = identical, 1 = different.
+#
+# We do this separately for H, S, V and then combine with weights:
+#   BC_total = 0.7 * BC_h + 0.2 * BC_s + 0.1 * BC_v
+#   distance = sqrt(1 - BC_total)
+#
+# The cat with the lowest distance is the best match. We always return a name
+# (never "no match") because if profiles exist there's always a closest one.
+# confidence = 1.0 - distance, so a perfect match is confidence 1.0.
+
+
+
 class ColorHistogramExtractor:
     """
     Extract HSV color histograms from rectangular image regions.
@@ -237,14 +268,14 @@ class ColorHistogramIdentifier:
         best_cat = min(distances, key=distances.get)
         best_distance = distances[best_cat]
         confidence = max(0.0, 1.0 - best_distance)
-        
+
         return best_cat, confidence, distances
 
     def _bhattacharyya_distance(self, h1_h, h1_s, h1_v, h2_h, h2_s, h2_v):
         """
         Compute Bhattacharyya distance between two HSV histograms.
 
-        Uses per-channel weights stored in ``self.hsv_weights``.
+        Uses per-channel weights stored in self.hsv_weights.
 
         Returns:
             distance: 0 = identical, 1 = completely different

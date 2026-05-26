@@ -91,3 +91,60 @@ class TestMultiTracker:
         for _ in range(3):
             confirmed = mt.update(det)
         assert len(confirmed) == 1
+
+    def test_gated_detection_creates_new_track(self):
+        # Detection beyond max_match_dist (model_w * 0.5 = 160) must not match
+        # the existing track even if iou_threshold would allow it.
+        mt = MultiTracker(max_missed=10, min_hits=1, iou_threshold=0.0, model_w=320, model_h=320)
+        mt.update([{'box': np.array([100.0, 160.0, 40.0, 40.0]), 'confidence': 0.9}])
+        # Center distance = 165 > 160 → gated
+        far_det = [{'box': np.array([265.0, 160.0, 40.0, 40.0]), 'confidence': 0.9}]
+        mt.update(far_det)
+        assert len(mt.tracks) == 2
+
+    def test_close_detection_not_gated(self):
+        # Detection within max_match_dist should still match normally.
+        mt = MultiTracker(max_missed=10, min_hits=1, iou_threshold=0.1, model_w=320, model_h=320)
+        det = [{'box': np.array([100.0, 100.0, 50.0, 50.0]), 'confidence': 0.9}]
+        mt.update(det)
+        mt.update(det)
+        assert len(mt.tracks) == 1
+        assert mt.tracks[0].hits == 2
+
+    def test_hybrid_cost_prefers_closer_candidate(self):
+        # Two tracks, two detections. The detection closer in center distance
+        # to each track should win even when IoU scores are similar.
+        mt = MultiTracker(max_missed=10, min_hits=1, iou_threshold=0.3, model_w=320, model_h=320)
+        mt.update([
+            {'box': np.array([80.0,  160.0, 60.0, 60.0]), 'confidence': 0.9},
+            {'box': np.array([240.0, 160.0, 60.0, 60.0]), 'confidence': 0.9},
+        ])
+        # Detections stay close to their respective tracks
+        confirmed = mt.update([
+            {'box': np.array([82.0,  160.0, 60.0, 60.0]), 'confidence': 0.9},
+            {'box': np.array([238.0, 160.0, 60.0, 60.0]), 'confidence': 0.9},
+        ])
+        # Both tracks updated (hits=2), not swapped or duplicated
+        assert len(mt.tracks) == 2
+        assert all(t.hits == 2 for t in mt.tracks)
+
+    def test_compensate_camera_motion_inflates_velocity_covariance(self):
+        mt = MultiTracker(min_hits=1, model_w=320, model_h=320)
+        mt.update([{'box': np.array([160.0, 160.0, 50.0, 50.0]), 'confidence': 0.9}])
+        track = mt.tracks[0]
+        p44_before = track.kf.kf.P[4, 4]
+        p55_before = track.kf.kf.P[5, 5]
+        mt.compensate_camera_motion(dx=5.0, dy=0.0)
+        assert track.kf.kf.P[4, 4] > p44_before
+        assert track.kf.kf.P[5, 5] > p55_before
+
+    def test_compensate_camera_motion_zeroes_velocity(self):
+        mt = MultiTracker(min_hits=1, model_w=320, model_h=320)
+        det = {'box': np.array([160.0, 160.0, 50.0, 50.0]), 'confidence': 0.9}
+        # Two updates to build up some velocity
+        mt.update([det])
+        mt.update([{'box': np.array([170.0, 160.0, 50.0, 50.0]), 'confidence': 0.9}])
+        mt.compensate_camera_motion(dx=10.0, dy=0.0)
+        track = mt.tracks[0]
+        assert track.kf.kf.x[4] == 0.0
+        assert track.kf.kf.x[5] == 0.0

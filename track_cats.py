@@ -33,7 +33,7 @@ def draw_track(frame, track, model_w, model_h, name_to_id, debug=False, is_tenta
 
     if is_tentative:
         color = (128, 128, 128)
-        label = "? (tent)"
+        label = "?"
     else:
         color = TRACK_COLORS[(display_id - 1) % len(TRACK_COLORS)] if display_id else (128, 128, 128)
         if display_id:
@@ -58,13 +58,13 @@ def draw_track(frame, track, model_w, model_h, name_to_id, debug=False, is_tenta
         cv2.drawMarker(frame, (cx, cy), (0, 255, 255), cv2.MARKER_CROSS, 20, 2)
 
 
-def start_recording(fps, frame_size):
-    os.makedirs("demos", exist_ok=True)
+def start_recording(fps, frame_size, directory):
+    os.makedirs(directory, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = f"demos/phase2_tracking_{ts}.mp4"
+    path = f"{directory}/{ts}.mp4"
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(path, fourcc, fps, frame_size)
-    print(f"[REC] Started recording → {path}")
+    print(f"[REC] Started → {path}")
     return writer, path
 
 
@@ -74,7 +74,8 @@ def stop_recording(writer, path, frames):
 
 
 def main(debug=True, record=False, fps=None, log_positions=False, no_servo=False,
-         config_path=None, stream=False, stream_port=5000, inference_every=None):
+         config_path=None, stream=False, stream_port=5000, inference_every=None,
+         auto_record=False, auto_record_grace=30):
     cfg = load_config(config_path)
     det_cfg = cfg['detection']
     trk_cfg = cfg['tracking']
@@ -104,6 +105,8 @@ def main(debug=True, record=False, fps=None, log_positions=False, no_servo=False
         max_missed=effective_max_missed,
         min_hits=trk_cfg['min_hits'],
         iou_threshold=trk_cfg['iou_threshold'],
+        model_w=model_w,
+        model_h=model_h,
     )
     extractor = ColorHistogramExtractor(
         bins_h=id_cfg['bins_h'], bins_s=id_cfg['bins_s'], bins_v=id_cfg['bins_v'],
@@ -131,14 +134,18 @@ def main(debug=True, record=False, fps=None, log_positions=False, no_servo=False
     written_frames = 0
     recording = record
     target_cat_name = None
+    auto_out = None
+    auto_output_path = None
+    auto_written_frames = 0
+    last_cat_seen = None
 
     if recording:
-        out, output_path = start_recording(fps, (cam_cfg['width'], cam_cfg['height']))
+        out, output_path = start_recording(fps, (cam_cfg['width'], cam_cfg['height']), "demos")
 
     stream_server = None
     if stream:
         if not FLASK_AVAILABLE:
-            print("[STREAM] flask not installed — run: sudo apt install python3-flask python3-flask-sock")
+            print("[STREAM] flask not installed; run: sudo apt install python3-flask python3-flask-sock")
             stream = False
         else:
             stream_server = StreamServer(port=stream_port)
@@ -233,6 +240,19 @@ def main(debug=True, record=False, fps=None, log_positions=False, no_servo=False
                         track.name, track.name_confidence, _ = identifier.identify(h, s, v)
                         track.frames_since_identified = 0
 
+            if auto_record:
+                if confirmed_tracks:
+                    last_cat_seen = time.time()
+                    if auto_out is None:
+                        auto_out, auto_output_path = start_recording(fps, (cam_cfg['width'], cam_cfg['height']), "recordings")
+                        auto_written_frames = 0
+                elif auto_out is not None and last_cat_seen is not None:
+                    if time.time() - last_cat_seen >= auto_record_grace:
+                        stop_recording(auto_out, auto_output_path, auto_written_frames)
+                        auto_out = None
+                        auto_output_path = None
+                        last_cat_seen = None
+
             target_track = None
             if servo_ctrl.mode == ServoController.MODE_AUTO:
                 if confirmed_tracks:
@@ -301,14 +321,18 @@ def main(debug=True, record=False, fps=None, log_positions=False, no_servo=False
             if log_positions:
                 status_lines.append(f"LOG: {log_count}")
 
-            for i, line in enumerate(status_lines):
-                color = (0, 0, 255) if (i == 2 and recording) else (255, 255, 255)
-                cv2.putText(frame, line, (10, 30 + i * 25),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            if not stream:
+                for i, line in enumerate(status_lines):
+                    color = (0, 0, 255) if (i == 2 and recording) else (255, 255, 255)
+                    cv2.putText(frame, line, (10, 30 + i * 25),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
             if out is not None:
                 out.write(frame)
                 written_frames += 1
+            if auto_out is not None:
+                auto_out.write(frame)
+                auto_written_frames += 1
 
             if stream:
                 stream_server.push(frame)
@@ -337,49 +361,36 @@ def main(debug=True, record=False, fps=None, log_positions=False, no_servo=False
                 if key == ord("q"):
                     break
                 elif key == ord("d"):
-                    debug = not debug
-                    print(f"[DEBUG] {'ON' if debug else 'OFF'}")
+                    handle_command({"cmd": "toggle_debug"})
                 elif key == ord("r"):
-                    recording = not recording
-                    if recording:
-                        written_frames = 0
-                        out, output_path = start_recording(fps, (cam_cfg['width'], cam_cfg['height']))
-                    else:
-                        stop_recording(out, output_path, written_frames)
-                        out = None
-                        output_path = None
+                    handle_command({"cmd": "toggle_record"})
                 elif key == ord("s"):
-                    servo_ctrl.toggle_mode()
+                    handle_command({"cmd": "servo_mode"})
                 elif key == ord("c"):
-                    servo_ctrl.center()
-                    print("[SERVO] Centered")
+                    handle_command({"cmd": "center"})
                 elif key in (81, ord('a')):
-                    pan_d = servo_ctrl.manual_pan_left()
-                    if pan_d: tracker.compensate_camera_motion(pan_d * px_per_deg_h, 0)
-                elif key in (83, ord('d')):
-                    pan_d = servo_ctrl.manual_pan_right()
-                    if pan_d: tracker.compensate_camera_motion(pan_d * px_per_deg_h, 0)
+                    handle_command({"cmd": "pan_left"})
+                elif key == 83:
+                    handle_command({"cmd": "pan_right"})
                 elif key in (82, ord('w')):
-                    tilt_d = servo_ctrl.manual_tilt_up()
-                    if tilt_d: tracker.compensate_camera_motion(0, tilt_d * px_per_deg_v)
+                    handle_command({"cmd": "tilt_up"})
                 elif key == 84:
-                    tilt_d = servo_ctrl.manual_tilt_down()
-                    if tilt_d: tracker.compensate_camera_motion(0, tilt_d * px_per_deg_v)
+                    handle_command({"cmd": "tilt_down"})
                 elif ord('0') <= key <= ord('9') and servo_ctrl.mode == ServoController.MODE_AUTO:
                     if key == ord('0'):
-                        target_cat_name = None
-                        print("[SERVO] Tracking any cat")
+                        handle_command({"cmd": "target", "name": None})
                     else:
                         idx = int(chr(key)) - 1
                         if 0 <= idx < len(cat_list):
-                            target_cat_name = cat_list[idx]
-                            print(f"[SERVO] Targeting {target_cat_name}")
+                            handle_command({"cmd": "target", "name": cat_list[idx]})
                         else:
                             print(f"[SERVO] No cat #{int(chr(key))} in config")
 
     finally:
         if out is not None:
             stop_recording(out, output_path, written_frames)
+        if auto_out is not None:
+            stop_recording(auto_out, auto_output_path, auto_written_frames)
         if pos_logger is not None:
             pos_logger.close()
             print(f"[LOG] Logged {log_count} positions to occupancy_log.csv")
@@ -403,6 +414,10 @@ if __name__ == "__main__":
     parser.add_argument("--stream-port",     type=int, default=5000, help="Stream server port (default: 5000)")
     parser.add_argument("--inference-every", type=int, default=None,
                         help="Run YOLO every N frames; Kalman predicts in between (default: tracking.inference_every from config)")
+    parser.add_argument("--auto-record",     action="store_true",
+                        help="Auto-record to recordings/ when a cat is in frame")
+    parser.add_argument("--auto-record-grace", type=int, default=30,
+                        help="Seconds after last cat before stopping auto-record (default: 30)")
 
     args = parser.parse_args()
     main(
@@ -410,4 +425,5 @@ if __name__ == "__main__":
         log_positions=args.log_positions, no_servo=args.no_servo,
         config_path=args.config, stream=args.stream, stream_port=args.stream_port,
         inference_every=args.inference_every,
+        auto_record=args.auto_record, auto_record_grace=args.auto_record_grace,
     )

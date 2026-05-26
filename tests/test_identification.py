@@ -37,7 +37,7 @@ class TestColorHistogramExtractor:
         assert h is None
 
     def test_extract_low_saturation_returns_none(self):
-        # Gray image — all pixels should be masked out
+        # Gray image, all pixels should be masked out
         frame = np.full((100, 100, 3), [128, 128, 128], dtype=np.uint8)
         extractor = ColorHistogramExtractor(min_saturation=20, min_value=20)
         h, s, v = extractor.extract(frame, (0, 0, 100, 100))
@@ -77,7 +77,7 @@ class TestColorHistogramIdentifier:
     def test_save_load_roundtrip(self):
         fd, path = tempfile.mkstemp(suffix=".json")
         os.close(fd)
-        os.unlink(path)  # ensure file doesn't exist yet
+        os.unlink(path)
 
         try:
             id1 = ColorHistogramIdentifier(profile_path=path)

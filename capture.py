@@ -33,7 +33,7 @@ from cat_tracker.multi_tracker import MultiTracker
 from cat_tracker.utils import bbox_to_pixel_xyxy
 from cat_tracker.detection import load_yolo_model, parse_yolo_output, preprocess_frame, TRACK_COLORS
 
-def main(duration=None):
+def main(duration=None, no_display=False):
     session_id = datetime.now().strftime("session_%Y%m%d_%H%M%S")
     session_dir = f"captures/{session_id}"
     os.makedirs(session_dir, exist_ok=True)
@@ -133,19 +133,26 @@ def main(duration=None):
             cv2.putText(display_frame, f"Tracks: {len(track_frame_counts)} | Capturing...", (10, 60),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-            cv2.imshow("Auto-Capture - Press 'q' to stop", display_frame)
-            key = cv2.waitKey(1) & 0xFF
-
-            if key == ord('q'):
-                print("\nStopping capture...")
-                break
+            if no_display:
+                total_saved = sum(
+                    len([f for f in os.listdir(f"{session_dir}/track_{tid:03d}") if f.endswith('.jpg')])
+                    for tid in track_frame_counts
+                )
+                print(f"\r[{int(time.time() - start_time)}s] tracks={len(track_frame_counts)} saved={total_saved}", end="", flush=True)
+            else:
+                cv2.imshow("Auto-Capture - Press 'q' to stop", display_frame)
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q'):
+                    print("\nStopping capture...")
+                    break
 
     except KeyboardInterrupt:
         print("\nInterrupted")
 
     finally:
         picam2.stop()
-        cv2.destroyAllWindows()
+        if not no_display:
+            cv2.destroyAllWindows()
 
         # Save metadata
         metadata = {
@@ -186,7 +193,8 @@ def main(duration=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Auto-capture cat detections')
-    parser.add_argument('--duration', type=int, help='Auto-stop after N seconds')
+    parser.add_argument('--duration',   type=int,         help='Auto-stop after N seconds')
+    parser.add_argument('--no-display', action='store_true', help='Run headlessly (no cv2 window, stop with Ctrl-C)')
     args = parser.parse_args()
 
-    main(duration=args.duration)
+    main(duration=args.duration, no_display=args.no_display)

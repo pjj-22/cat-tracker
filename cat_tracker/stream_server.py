@@ -143,7 +143,7 @@ class StreamServer:
         self._cmd_queue = queue.Queue()
 
         if not FLASK_AVAILABLE:
-            raise RuntimeError("flask is required — pip install flask flask-sock")
+            raise RuntimeError("flask is required; pip install flask flask-sock")
 
         app = Flask(__name__)
         import logging

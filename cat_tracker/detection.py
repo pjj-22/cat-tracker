@@ -44,11 +44,9 @@ def load_yolo_model(model_path=DEFAULT_MODEL_PATH):
     if not os.path.exists(model_path):
         raise FileNotFoundError(
             f"YOLO model not found: {model_path}\n\n"
-            f"Please download the YOLO11 ONNX model:\n"
-            f"  1. Install ultralytics: pip install ultralytics\n"
-            f"  2. Export model: yolo export model=yolo11s.pt format=onnx\n"
-            f"  3. Move yolo11s.onnx to this directory\n\n"
-            f"Or download directly from Ultralytics."
+            f"  pip install ultralytics\n"
+            f"  python3 -c \"from ultralytics import YOLO; YOLO('yolo11s.pt').export(format='onnx', imgsz=320)\"\n"
+            f"Then ensure yolo11s.onnx is in cat-tracker directory."
         )
 
     session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
@@ -61,7 +59,7 @@ def load_yolo_model(model_path=DEFAULT_MODEL_PATH):
 
 def parse_yolo_output(output, conf_threshold=0.15, iou_threshold=0.4):
     """
-    Parse YOLOv8 ONNX output and return cat detections.
+    Parse YOLO ONNX output and return cat detections.
     """
     output = output[0].T
     boxes, boxes_tl, scores = [], [], []
