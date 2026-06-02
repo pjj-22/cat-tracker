@@ -79,6 +79,24 @@ captures/
 
 Track numbers reset to 1 each session. **Run multiple sessions** since different times of day and rooms matter. Lighting changes how HSV looks.
 
+### Step 2: Label (`label.py`)
+
+Opens each saved crop as a fullscreen image. You press a number key to assign it to a cat.
+
+```bash
+python3 label.py captures/session_YYYYMMDD_HHMMSS/
+```
+
+| Key | Action |
+|-----|--------|
+| `1`–`9` | Assign to cat #N (first use prompts for a name) |
+| `s` | Skip |
+| `d` | Delete the file from disk |
+| `n` | Jump to next track |
+| `q` | Save and quit |
+
+Cat names are set the first time you press a number key. You can resume a session; existing labels are reloaded automatically.
+
 #### Labeling remotely
 
 `label.py` needs a display. If you're SSH'd in headlessly, label on your local machine instead:
@@ -112,31 +130,13 @@ python3 label.py captures/session_YYYYMMDD_HHMMSS/  # label locally
 >
 > | Script | When to use |
 > |--------|-------------|
-> | `camera_test.py` | Verify the camera works, saves a still to `cat_test.jpg` |
-> | `calibrate_camera.py` | One-time floor homography setup for position logging |
-> | `servo_camera_test.py` | Manual servo + live feed test before running the tracker |
-> | `test_profiles.py` | Check identification accuracy against labeled sessions |
-> | `generate_heatmap.py` | Generate a heatmap PNG from `occupancy_log.csv` |
-> | `analyze_zones.py` | Zone occupancy breakdown from `occupancy_log.csv` |
-> | `visualize_profiles.py` | Plot the HSV histogram profiles for each cat |
-
-### Step 2: Label (`label.py`)
-
-Opens each saved crop as a fullscreen image. You press a number key to assign it to a cat.
-
-```bash
-python3 label.py captures/session_YYYYMMDD_HHMMSS/
-```
-
-| Key | Action |
-|-----|--------|
-| `1`–`9` | Assign to cat #N (first use prompts for a name) |
-| `s` | Skip |
-| `d` | Delete the file from disk |
-| `n` | Jump to next track |
-| `q` | Save and quit |
-
-Cat names are set the first time you press a number key. You can resume a session; existing labels are reloaded automatically.
+> | `scripts/camera_test.py` | Verify the camera works, saves a still to `cat_test.jpg` |
+> | `scripts/calibrate_camera.py` | One-time floor homography setup for position logging |
+> | `scripts/servo_camera_test.py` | Manual servo + live feed test before running the tracker |
+> | `scripts/test_profiles.py` | Check identification accuracy against labeled sessions |
+> | `scripts/generate_heatmap.py` | Generate a heatmap PNG from `occupancy_log.csv` |
+> | `scripts/analyze_zones.py` | Zone occupancy breakdown from `occupancy_log.csv` |
+> | `scripts/visualize_profiles.py` | Plot the HSV histogram profiles for each cat |
 
 **Output:** `captures/session_.../labels.json`
 
@@ -220,13 +220,12 @@ sudo raspi-config  # Interface Options → I2C → Enable
 
 ### Mounting Offset
 
-My pan/tilt mount isn't perfectly centered when assembled - the "straight ahead" position is at pan=60°, tilt=90° instead of 90°/90°. The code defaults to these values but you can adjust in `track_cats.py`:
+My pan/tilt mount isn't perfectly centered when assembled - the "straight ahead" position is at pan=60°, tilt=90° instead of 90°/90°. Adjust these in `config.yaml`:
 
-```python
-servo_ctrl = ServoController(
-    pan_center=60,   # your "straight ahead" pan angle
-    tilt_center=90,  # your "straight ahead" tilt angle
-)
+```yaml
+servo:
+  pan_center: 60    # your "straight ahead" pan angle
+  tilt_center: 90   # your "straight ahead" tilt angle
 ```
 
 ### Controls
@@ -240,22 +239,22 @@ In AUTO mode with no cats visible, the camera will slowly patrol back and forth 
 
 ## Position Logging & Heatmaps
 
-Want to know where your cats spend their time?
+> **Note:** Position logging assumes a stationary camera. The homography calibration maps pixel coordinates to floor coordinates for one fixed camera angle. If the servo is active and panning/tilting, logged positions will be wrong. Run with `--no-servo` (or set `servo.enabled: false` in `config.yaml`) when collecting data for heatmaps.
 
 ### Calibrate the Camera
 
-First, you need to tell the system how your camera view maps to real floor coordinates:
+You need a homography that maps pixel coordinates to real floor positions. Run this once:
 
 ```bash
-python3 calibrate_camera.py
+python3 scripts/calibrate_camera.py
 ```
 
-Click 4+ points on the floor that you can measure, enter their real-world positions in meters. The system computes a homography matrix to transform pixel coordinates to floor coordinates.
+Click 4+ points on the floor that you can measure, enter their real-world positions in meters. Saves a `calibration.json` that the heatmap and zone scripts pick up automatically.
 
 ### Log Positions
 
 ```bash
-python3 track_cats.py --log-positions
+python3 track_cats.py --log-positions --no-servo
 ```
 
 This writes timestamped positions to `occupancy_log.csv`. Let it run for a day or two to collect meaningful data.
@@ -264,10 +263,10 @@ This writes timestamped positions to `occupancy_log.csv`. Let it run for a day o
 
 ```bash
 # All cats, last 24 hours
-python3 generate_heatmap.py
+python3 scripts/generate_heatmap.py
 
 # Just one cat
-python3 generate_heatmap.py --cat Honey --hours 8
+python3 scripts/generate_heatmap.py --cat Honey --hours 8
 ```
 
 ### Zone Analysis
@@ -282,7 +281,7 @@ Define zones in `zones.json`:
 
 Then analyze:
 ```bash
-python3 analyze_zones.py --hours 24
+python3 scripts/analyze_zones.py --hours 24
 ```
 
 ## How It Works
@@ -415,7 +414,7 @@ Pure IoU matching fails when cats move fast or when there are brief occlusions. 
 Simpler to implement, no GPU needed for training, works well enough for 2-4 cats with different colors. If I had 10 cats that all looked the same, I'd probably train a ResNet.
 
 **HSV instead of RGB?**
-Hue is more stable under lighting changes. A orange cat is still "orange" in dim light, even if the RGB values shift dramatically.
+Hue is more stable under lighting changes. An orange cat is still "orange" in dim light, even if the RGB values shift dramatically.
 
 **Why servo patrol?**
 Cats are sneaky. If the camera is pointed at the couch and they walk in through the door, you won't see them until they cross into view. A slow patrol sweep catches them faster.

@@ -47,8 +47,8 @@ class PanTiltController:
         # Angle limits
         self.pan_min = 0
         self.pan_max = 180
-        self.tilt_min = 15  # Limit tilt to prevent mechanical issues
-        self.tilt_max = 165
+        self.tilt_min = 60
+        self.tilt_max = 120
 
         self._pan = float(pan_center)
         self._tilt = float(tilt_center)
@@ -228,7 +228,7 @@ def main(pan_channel=0, tilt_channel=1, resolution=(640, 480)):
 
     finally:
         print("\nShutting down...")
-        if controller.servo:
+        if controller._kit:
             controller.reset()
         picam2.stop()
         cv2.destroyAllWindows()

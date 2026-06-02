@@ -173,8 +173,7 @@ def calibrate():
     print(f"  Frame center {center_pixel} → Floor ({floor_x:.2f}, {floor_y:.2f}) meters")
 
     print("\nNext steps:")
-    print("  1. Visualize pattern: python3 visualize_calibration.py")
-    print("  2. Start tracking: python3 track_cats.py --log-positions")
+    print("  1. Start tracking: python3 track_cats.py --log-positions --no-servo")
 
 
 if __name__ == "__main__":

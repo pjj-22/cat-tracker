@@ -244,7 +244,7 @@ if __name__ == "__main__":
     
     if not os.path.exists(profile_path):
         print(f"ERROR: Profile file not found: {profile_path}")
-        print("\nRun train_cat_profiles_fixed.py first to create profiles")
+        print("\nRun build_profiles.py first to create profiles")
         exit(1)
 
     with open(profile_path, "r") as f:
