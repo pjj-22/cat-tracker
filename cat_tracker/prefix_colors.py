@@ -271,7 +271,7 @@ class ColorHistogramIdentifier:
 
         return best_cat, confidence, distances
 
-    def identify_exclusive(self, histograms):
+    def identify_exclusive(self, histograms, exclude=None):
         """
         Identify multiple cats with exclusive assignment so no two tracks share a name.
 
@@ -281,6 +281,7 @@ class ColorHistogramIdentifier:
 
         Args:
             histograms: list of (hist_h, hist_s, hist_v) tuples, one per track
+            exclude: set of cat names already claimed by stable tracks (off-limits)
 
         Returns:
             list of (cat_name, confidence) in the same order as input
@@ -290,14 +291,22 @@ class ColorHistogramIdentifier:
         if not self.profiles or not histograms:
             return [("Unknown", 0.0)] * len(histograms)
 
-        if len(histograms) == 1 or len(self.profiles) == 1:
+        cat_names = [n for n in self.profiles.keys() if n not in (exclude or set())]
+
+        if not cat_names:
+            return [("Unknown", 0.0)] * len(histograms)
+
+        if len(histograms) == 1 or len(cat_names) == 1:
             results = []
             for h, s, v in histograms:
-                name, conf, _ = self.identify(h, s, v)
-                results.append((name, conf))
+                best_name, best_dist = None, float('inf')
+                for name in cat_names:
+                    p = self.profiles[name]
+                    d = self._bhattacharyya_distance(h, s, v, p['hist_h'], p['hist_s'], p['hist_v'])
+                    if d < best_dist:
+                        best_dist, best_name = d, name
+                results.append((best_name, max(0.0, 1.0 - best_dist)))
             return results
-
-        cat_names = list(self.profiles.keys())
         n_tracks = len(histograms)
         n_cats = len(cat_names)
 

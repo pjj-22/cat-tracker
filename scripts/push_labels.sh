@@ -5,4 +5,4 @@ LOCAL=./captures/
 
 rsync -avz --progress --include="*/" --include="labels.json" --exclude="*" "$LOCAL" "$PI:$REMOTE"
 
-ssh "$PI" "cd ~/Projects/cat-tracker && rm -f cat_profiles.json && python3 build_profiles.py captures/session_*"
+ssh "$PI" "cd ~/Projects/cat-tracker && git pull && rm -f cat_profiles.json && python3 build_profiles.py captures/session_*"
