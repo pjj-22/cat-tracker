@@ -48,9 +48,10 @@ class BBoxKalmanFilter:
             [0, 0, 0, 1, 0, 0, 0, 0],
         ])
 
-        self.kf.R *= 10.0
+        self.kf.R *= 2.0
 
-        # vw/vh constrained; aggressive tracking adds noise
+        # vw/vh constrained; cats change position/speed fast but not size
+        self.kf.Q[4:6, 4:6] *= 10.0
         self.kf.Q[6:8, 6:8] *= 0.01
 
         self.kf.P[4:6, 4:6] *= 1000.0

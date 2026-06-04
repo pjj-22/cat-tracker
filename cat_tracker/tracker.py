@@ -27,6 +27,9 @@ class Track:
         self.name_confidence = 0.0
         self._candidate_name = "Unknown"
         self._candidate_streak = 0
+        self.hist_h = None
+        self.hist_s = None
+        self.hist_v = None
 
     def predict(self):
         """Predict next position."""
@@ -51,7 +54,9 @@ class Track:
 
     def mark_missed(self):
         self.missed_frames += 1
-        self.kf.kf.x[6] = 0.0  # freeze box size, no detection to correct drift
+        self.kf.kf.x[4] *= 0.5  # damp velocity so the box doesn't fly off
+        self.kf.kf.x[5] *= 0.5
+        self.kf.kf.x[6] = 0.0
         self.kf.kf.x[7] = 0.0
         self.bbox = self.predicted_bbox
 
@@ -62,6 +67,16 @@ class Track:
     def velocity(self):
         """Current velocity estimate [vx, vy] in model-space pixels/frame."""
         return self.kf.get_velocity()
+
+    def update_hist(self, hist_h, hist_s, hist_v, alpha=0.25):
+        if self.hist_h is None:
+            self.hist_h = hist_h.copy()
+            self.hist_s = hist_s.copy()
+            self.hist_v = hist_v.copy()
+        else:
+            self.hist_h = alpha * hist_h + (1.0 - alpha) * self.hist_h
+            self.hist_s = alpha * hist_s + (1.0 - alpha) * self.hist_s
+            self.hist_v = alpha * hist_v + (1.0 - alpha) * self.hist_v
 
     def should_delete(self, max_missed=10):
         """Check if track should be deleted (lost for too long)."""

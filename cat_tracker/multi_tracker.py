@@ -159,12 +159,14 @@ class MultiTracker:
         n_dets = len(detections)
         cost_matrix = np.zeros((n_tracks, n_dets))
         iou_matrix = np.zeros((n_tracks, n_dets))
+        dist_matrix = np.zeros((n_tracks, n_dets))
 
         for i, track in enumerate(self.tracks):
             for j, det in enumerate(detections):
                 iou_score = iou(track.predicted_bbox, det['box'])
                 center_dist = euclidean_distance(track.predicted_bbox, det['box'])
                 iou_matrix[i, j] = iou_score
+                dist_matrix[i, j] = center_dist
 
                 # Gate pairs too far apart
                 if center_dist > self._max_match_dist:
@@ -182,7 +184,8 @@ class MultiTracker:
         for track_idx, det_idx in zip(track_indices, det_indices):
             if cost_matrix[track_idx, det_idx] >= 1e6:
                 continue
-            if iou_matrix[track_idx, det_idx] >= self.iou_threshold:
+            close_enough = dist_matrix[track_idx, det_idx] < self._max_match_dist * 0.5
+            if iou_matrix[track_idx, det_idx] >= self.iou_threshold or close_enough:
                 matches.append((track_idx, det_idx))
                 unmatched_dets.remove(det_idx)
                 unmatched_tracks.remove(track_idx)

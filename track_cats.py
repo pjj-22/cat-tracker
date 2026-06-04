@@ -138,6 +138,7 @@ def main(debug=True, record=False, fps=None, log_positions=False, no_servo=False
     auto_output_path = None
     auto_written_frames = 0
     last_cat_seen = None
+    current_fps = 0.0
 
     if recording:
         out, output_path = start_recording(fps, (cam_cfg['width'], cam_cfg['height']), "demos")
@@ -161,7 +162,6 @@ def main(debug=True, record=False, fps=None, log_positions=False, no_servo=False
 
     fps_start = time.time()
     fps_count = 0
-    current_fps = 0.0
     frame_count = 0
     detections = []
 
@@ -175,7 +175,7 @@ def main(debug=True, record=False, fps=None, log_positions=False, no_servo=False
             recording = not recording
             if recording:
                 written_frames = 0
-                out, output_path = start_recording(fps, (cam_cfg['width'], cam_cfg['height']))
+                out, output_path = start_recording(current_fps or fps, (cam_cfg['width'], cam_cfg['height']))
             else:
                 stop_recording(out, output_path, written_frames)
                 out = None
@@ -241,7 +241,10 @@ def main(debug=True, record=False, fps=None, log_positions=False, no_servo=False
                         valid.append((track, h, s, v))
 
                 if valid:
-                    histograms = [(h, s, v) for _, h, s, v in valid]
+                    hist_alpha = id_cfg.get('hist_alpha', 0.25)
+                    for track, h, s, v in valid:
+                        track.update_hist(h, s, v, hist_alpha)
+                    histograms = [(t.hist_h, t.hist_s, t.hist_v) for t, _, _, _ in valid]
                     assignments = identifier.identify_exclusive(histograms)
                     for (track, _, _, _), (name, conf) in zip(valid, assignments):
                         if name == track._candidate_name:
@@ -257,7 +260,7 @@ def main(debug=True, record=False, fps=None, log_positions=False, no_servo=False
                 if confirmed_tracks:
                     last_cat_seen = time.time()
                     if auto_out is None:
-                        auto_out, auto_output_path = start_recording(fps, (cam_cfg['width'], cam_cfg['height']), "recordings")
+                        auto_out, auto_output_path = start_recording(current_fps or fps, (cam_cfg['width'], cam_cfg['height']), "recordings")
                         auto_written_frames = 0
                 elif auto_out is not None and last_cat_seen is not None:
                     if time.time() - last_cat_seen >= auto_record_grace:
