@@ -245,7 +245,9 @@ def main(debug=True, record=False, fps=None, log_positions=False, no_servo=False
                 reidentifying = {id(track) for track, *_ in to_identify}
                 already_claimed = {
                     t.name for t in confirmed_tracks
-                    if t.name != "Unknown" and id(t) not in reidentifying
+                    if t.name != "Unknown"
+                    and id(t) not in reidentifying
+                    and t.name_confidence >= 0.5
                 }
                 assignments = identifier.identify_exclusive(histograms, exclude=already_claimed)
                 for (track, _, _, _), (name, conf) in zip(to_identify, assignments):
