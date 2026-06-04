@@ -40,8 +40,8 @@ identification:
   bins_s: 32
   bins_v: 32
   hsv_weights: [0.7, 0.2, 0.1]
-  min_saturation: 20
-  min_value: 20
+  min_saturation: 60
+  min_value: 30
 
 logging:
   position_log_path: "occupancy_log.csv"

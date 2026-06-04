@@ -93,6 +93,9 @@ class MultiTracker:
                 a, b = confirmed[i], confirmed[j]
                 if a.name == "Unknown" or a.name != b.name:
                     continue
+                # Both tracks are actively detected right now -- two real cats, not a ghost
+                if a.missed_frames == 0 and b.missed_frames == 0:
+                    continue
                 if a.missed_frames == 0 and b.missed_frames > 0:
                     to_delete.add(b.id)
                 elif b.missed_frames == 0 and a.missed_frames > 0:

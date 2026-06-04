@@ -230,6 +230,7 @@ def main(debug=True, record=False, fps=None, log_positions=False, no_servo=False
                 confirmed_tracks = tracker.predict_only()
 
             orig_h, orig_w = frame.shape[:2]
+            to_identify = []
             for track in confirmed_tracks:
                 if track.name == "Unknown" or track.frames_since_identified >= 30:
                     x1, y1, x2, y2 = bbox_to_pixel_xyxy(
@@ -237,8 +238,15 @@ def main(debug=True, record=False, fps=None, log_positions=False, no_servo=False
                     )
                     h, s, v = extractor.extract(frame, (x1, y1, x2, y2))
                     if h is not None:
-                        track.name, track.name_confidence, _ = identifier.identify(h, s, v)
-                        track.frames_since_identified = 0
+                        to_identify.append((track, h, s, v))
+
+            if to_identify:
+                histograms = [(h, s, v) for _, h, s, v in to_identify]
+                assignments = identifier.identify_exclusive(histograms)
+                for (track, _, _, _), (name, conf) in zip(to_identify, assignments):
+                    track.name = name
+                    track.name_confidence = conf
+                    track.frames_since_identified = 0
 
             if auto_record:
                 if confirmed_tracks:

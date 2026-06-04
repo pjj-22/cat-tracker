@@ -271,6 +271,52 @@ class ColorHistogramIdentifier:
 
         return best_cat, confidence, distances
 
+    def identify_exclusive(self, histograms):
+        """
+        Identify multiple cats with exclusive assignment so no two tracks share a name.
+
+        Uses the Hungarian algorithm to find the global minimum-cost assignment when
+        multiple tracks need identification simultaneously. Prevents both tracks from
+        grabbing the same cat name when profiles are ambiguous.
+
+        Args:
+            histograms: list of (hist_h, hist_s, hist_v) tuples, one per track
+
+        Returns:
+            list of (cat_name, confidence) in the same order as input
+        """
+        from scipy.optimize import linear_sum_assignment
+
+        if not self.profiles or not histograms:
+            return [("Unknown", 0.0)] * len(histograms)
+
+        if len(histograms) == 1 or len(self.profiles) == 1:
+            results = []
+            for h, s, v in histograms:
+                name, conf, _ = self.identify(h, s, v)
+                results.append((name, conf))
+            return results
+
+        cat_names = list(self.profiles.keys())
+        n_tracks = len(histograms)
+        n_cats = len(cat_names)
+
+        cost = np.zeros((n_tracks, n_cats), dtype=np.float32)
+        for i, (h, s, v) in enumerate(histograms):
+            for j, name in enumerate(cat_names):
+                p = self.profiles[name]
+                cost[i, j] = self._bhattacharyya_distance(
+                    h, s, v, p['hist_h'], p['hist_s'], p['hist_v']
+                )
+
+        track_idx, cat_idx = linear_sum_assignment(cost)
+
+        results = [("Unknown", 0.0)] * n_tracks
+        for ti, ci in zip(track_idx, cat_idx):
+            results[ti] = (cat_names[ci], max(0.0, 1.0 - cost[ti, ci]))
+
+        return results
+
     def _bhattacharyya_distance(self, h1_h, h1_s, h1_v, h2_h, h2_s, h2_v):
         """
         Compute Bhattacharyya distance between two HSV histograms.
