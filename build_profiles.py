@@ -22,6 +22,7 @@ import cv2
 import numpy as np
 from glob import glob
 from cat_tracker.prefix_colors import ColorHistogramExtractor, ColorHistogramIdentifier
+from cat_tracker.config import load_config
 
 def build_profiles_from_sessions(session_dirs, output_path="cat_profiles.json"):
     """
@@ -31,7 +32,12 @@ def build_profiles_from_sessions(session_dirs, output_path="cat_profiles.json"):
     print("BUILDING CAT COLOR PROFILES")
     print("="*70)
 
-    extractor = ColorHistogramExtractor()
+    cfg = load_config()
+    id_cfg = cfg['identification']
+    extractor = ColorHistogramExtractor(
+        bins_h=id_cfg['bins_h'], bins_s=id_cfg['bins_s'], bins_v=id_cfg['bins_v'],
+        min_saturation=id_cfg['min_saturation'], min_value=id_cfg['min_value'],
+    )
     identifier = ColorHistogramIdentifier(profile_path=output_path)
 
     total_sessions = 0
