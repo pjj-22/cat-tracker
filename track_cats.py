@@ -230,30 +230,28 @@ def main(debug=True, record=False, fps=None, log_positions=False, no_servo=False
                 confirmed_tracks = tracker.predict_only()
 
             orig_h, orig_w = frame.shape[:2]
-            to_identify = []
-            for track in confirmed_tracks:
-                if track.name == "Unknown" or track.frames_since_identified >= 30:
+            if frame_count % inference_every == 0:
+                valid = []
+                for track in confirmed_tracks:
                     x1, y1, x2, y2 = bbox_to_pixel_xyxy(
                         track.bbox, model_w, model_h, orig_w, orig_h
                     )
                     h, s, v = extractor.extract(frame, (x1, y1, x2, y2))
                     if h is not None:
-                        to_identify.append((track, h, s, v))
+                        valid.append((track, h, s, v))
 
-            if to_identify:
-                histograms = [(h, s, v) for _, h, s, v in to_identify]
-                reidentifying = {id(track) for track, *_ in to_identify}
-                already_claimed = {
-                    t.name for t in confirmed_tracks
-                    if t.name != "Unknown"
-                    and id(t) not in reidentifying
-                    and t.name_confidence >= 0.5
-                }
-                assignments = identifier.identify_exclusive(histograms, exclude=already_claimed)
-                for (track, _, _, _), (name, conf) in zip(to_identify, assignments):
-                    track.name = name
-                    track.name_confidence = conf
-                    track.frames_since_identified = 0
+                if valid:
+                    histograms = [(h, s, v) for _, h, s, v in valid]
+                    assignments = identifier.identify_exclusive(histograms)
+                    for (track, _, _, _), (name, conf) in zip(valid, assignments):
+                        if name == track._candidate_name:
+                            track._candidate_streak += 1
+                        else:
+                            track._candidate_name = name
+                            track._candidate_streak = 1
+                        if track._candidate_streak >= 3:
+                            track.name = track._candidate_name
+                            track.name_confidence = conf
 
             if auto_record:
                 if confirmed_tracks:

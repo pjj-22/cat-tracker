@@ -23,9 +23,10 @@ class Track:
         self.hits = 1             # number of times this track was matched
         self.missed_frames = 0    # consecutive frames without a detection
         self.age = 0              # total frames this track has existed
-        self.frames_since_identified = 0
         self.name = "Unknown"
         self.name_confidence = 0.0
+        self._candidate_name = "Unknown"
+        self._candidate_streak = 0
 
     def predict(self):
         """Predict next position."""
@@ -47,7 +48,6 @@ class Track:
         self.confidence = confidence
         self.hits += 1
         self.missed_frames = 0
-        self.frames_since_identified += 1
 
     def mark_missed(self):
         self.missed_frames += 1
