@@ -6,7 +6,7 @@ I built this because I have two cats and wanted to know what they do when I'm no
 
 ## What It Actually Does
 
-1. **Detects cats** using YOLO11s running on ONNX (~6 FPS inference, ~18 FPS effective with frame skipping)
+1. **Detects cats** using YOLO11s running on ONNX (~10 FPS inference, ~15-18 FPS effective with frame skipping)
 2. **Tracks them** across frames using Kalman filters so they don't lose their identity when they walk behind furniture
 3. **Identifies which cat** is which using HSV color histograms of their fur
 4. **Follows them** with servo-controlled pan/tilt if you have the hardware
@@ -288,7 +288,7 @@ python3 scripts/analyze_zones.py --hours 24
 
 ### Detection
 
-YOLO11s runs on ONNX runtime, which is way faster than PyTorch on ARM. I started with PyTorch and got 3 FPS. ONNX gets to ~6 FPS raw inference; with `--inference-every 3` the effective tracking rate is ~18 FPS since Kalman handles the in-between frames (though two thirds of those frames aren't actually being detected, just predicted). The model detects COCO class 15 (cat) with a confidence threshold of 0.15, lower than typical because I'd rather have false positives that get filtered by tracking than miss a cat.
+YOLO11s runs on ONNX runtime, which is way faster than PyTorch on ARM. I started with PyTorch and got 3 FPS. ONNX gets to ~10 FPS raw inference; with `--inference-every 3` the effective tracking rate is ~15-18 FPS since Kalman handles the in-between frames (many of those frames are predicted, not detected). The model detects COCO class 15 (cat) with a confidence threshold of 0.15, lower than typical because I'd rather have false positives that get filtered by tracking than miss a cat.
 
 ### Tracking
 
@@ -299,7 +299,7 @@ Each detected cat gets a Kalman filter with an 8-dimensional state vector `[x, y
 3. Update matched tracks, create new ones for unmatched detections
 4. Delete tracks missing for `max_missed` frames (default 15)
 
-With `--inference-every 3`, YOLO only runs every 3rd frame. Kalman predicts forward on the other frames, which roughly triples FPS with minimal accuracy loss.
+With `--inference-every 3`, YOLO only runs every 3rd frame. Kalman predicts forward on the other frames, which raises the effective frame rate (~10 → ~15-18 FPS) with minimal accuracy loss.
 
 One thing I've noticed: the Kalman filter assumes constant velocity between updates, which holds up fine for slow movement but starts drifting when a cat changes direction quickly. With 2 unobserved frames between corrections, the predicted position can be far enough off that the Hungarian matching occasionally associates the wrong detection to a track, particularly when both cats are close together. It works well enough in practice but it's not invisible.
 
@@ -405,7 +405,7 @@ cat-tracker/
 ## Why These Choices?
 
 **YOLO11s instead of 11n or 11m?**
-11n (nano) is faster but misses cats at distance. 11m (medium) is more accurate but the inference rate drops too low to be useful. 11s is the sweet spot, around 6 FPS raw and 18 FPS effective with frame skipping.
+11n (nano) is faster but misses cats at distance. 11m (medium) is more accurate but the inference rate drops too low to be useful. 11s is the sweet spot, around 10 FPS raw and 15-18 FPS effective with frame skipping.
 
 **Kalman filter instead of just IoU matching?**
 Pure IoU matching fails when cats move fast or when there are brief occlusions. Kalman prediction bridges these gaps. Plus it smooths out detection jitter.
