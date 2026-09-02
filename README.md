@@ -1,12 +1,14 @@
 # Cat Tracker
 
+![Two cats detected, tracked, and identified in real time](docs/demo.gif)
+
 A real-time cat detection and identification system for Raspberry Pi. It watches your cats, learns who's who based on fur color, and can even follow them with a pan/tilt camera mount.
 
 I built this because I have two cats and wanted to know what they do when I'm not around. Turns out, mostly sleep in the same spots. But the journey to find that out was pretty interesting.
 
 ## What It Actually Does
 
-1. **Detects cats** using YOLO11s running on ONNX (~10 FPS inference, ~15-18 FPS effective with frame skipping)
+1. **Detects cats** using YOLO11s running on ONNX (~85 ms/frame inference, ~15 FPS effective with frame skipping)
 2. **Tracks them** across frames using Kalman filters so they don't lose their identity when they walk behind furniture
 3. **Identifies which cat** is which using HSV color histograms of their fur
 4. **Follows them** with servo-controlled pan/tilt if you have the hardware
@@ -288,7 +290,7 @@ python3 scripts/analyze_zones.py --hours 24
 
 ### Detection
 
-YOLO11s runs on ONNX runtime, which is way faster than PyTorch on ARM. I started with PyTorch and got 3 FPS. ONNX gets to ~10 FPS raw inference; with `--inference-every 3` the effective tracking rate is ~15-18 FPS since Kalman handles the in-between frames (many of those frames are predicted, not detected). The model detects COCO class 15 (cat) with a confidence threshold of 0.15, lower than typical because I'd rather have false positives that get filtered by tracking than miss a cat.
+YOLO11s runs on ONNX runtime, which is way faster than PyTorch on ARM. I started with PyTorch and got 3 FPS. ONNX gets to ~10 FPS raw inference; with `--inference-every 3` the effective tracking rate is ~15 FPS since Kalman handles the in-between frames (many of those frames are predicted, not detected). The model detects COCO class 15 (cat) with a confidence threshold of 0.15, lower than typical because I'd rather have false positives that get filtered by tracking than miss a cat.
 
 ### Tracking
 
@@ -299,7 +301,9 @@ Each detected cat gets a Kalman filter with an 8-dimensional state vector `[x, y
 3. Update matched tracks, create new ones for unmatched detections
 4. Delete tracks missing for `max_missed` frames (default 15)
 
-With `--inference-every 3`, YOLO only runs every 3rd frame. Kalman predicts forward on the other frames, which raises the effective frame rate (~10 → ~15-18 FPS) with minimal accuracy loss.
+Most of the pipeline has a native C++ reimplementation in `cpp/` (an in-progress port toward a standalone binary), parity-tested against the Python originals in `tests/test_cpp_parity.py`: Kalman filter, Hungarian matching, `Track`/`MultiTracker`, YOLO output parse + NMS, frame preprocessing, and the config reader. There's a `cattrack` binary that runs camera to tracker (no servo/ID/stream yet) once ONNX Runtime C++ is available. The tracking core is ~45x faster than Python in isolation but end to end that's swamped by YOLO inference; the output parse (~12 ms/frame in Python, the biggest cost after inference) is ~30x faster and does move the frame budget. The Python path in `cat_tracker/` stays the reference.
+
+With `--inference-every 3`, YOLO only runs every 3rd frame. Kalman predicts forward on the other frames, which raises the effective frame rate to ~15 FPS with minimal accuracy loss.
 
 One thing I've noticed: the Kalman filter assumes constant velocity between updates, which holds up fine for slow movement but starts drifting when a cat changes direction quickly. With 2 unobserved frames between corrections, the predicted position can be far enough off that the Hungarian matching occasionally associates the wrong detection to a track, particularly when both cats are close together. It works well enough in practice but it's not invisible.
 
@@ -380,6 +384,13 @@ cat-tracker/
 │   ├── config.py              config.yaml loader + defaults
 │   └── utils.py               bbox math, IoU, coordinate helpers
 │
+├── cpp/                       native C++ port (in progress), parity-tested
+│   ├── include/cattrack/      headers (kalman, track, multi_tracker, detection, preprocess, camera, inference, config, ...)
+│   ├── src/                   implementation; main.cpp is the standalone binary
+│   ├── bindings/module.cpp    pybind11 module (cattrack_cpp)
+│   ├── bench_*.py             Python vs C++ microbenchmarks
+│   └── CMakeLists.txt
+│
 ├── scripts/
 │   ├── fetch_captures.sh      Pi → local: pull captures/ for labeling
 │   ├── push_labels.sh         local → Pi: push labels.json back
@@ -405,7 +416,7 @@ cat-tracker/
 ## Why These Choices?
 
 **YOLO11s instead of 11n or 11m?**
-11n (nano) is faster but misses cats at distance. 11m (medium) is more accurate but the inference rate drops too low to be useful. 11s is the sweet spot, around 10 FPS raw and 15-18 FPS effective with frame skipping.
+11n (nano) is faster but misses cats at distance. 11m (medium) is more accurate but the inference rate drops too low to be useful. 11s is the sweet spot, around 10 FPS raw and ~15 FPS effective with frame skipping.
 
 **Kalman filter instead of just IoU matching?**
 Pure IoU matching fails when cats move fast or when there are brief occlusions. Kalman prediction bridges these gaps. Plus it smooths out detection jitter.
@@ -450,7 +461,6 @@ Things I'm considering:
 - Multi-camera support for whole-house coverage
 - Web dashboard for remote monitoring
 - Push notifications when specific events happen
-- Rewriting the core pipeline in C++ to see whether dropping Python overhead entirely would give meaningful gains on the Pi, or whether ONNX already soaks up most of the available performance
 
 But honestly, knowing where my cats nap is already more than I expected to learn.
 
